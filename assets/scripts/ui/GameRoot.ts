@@ -12,12 +12,10 @@ import {
     UITransform,
     EventTouch,
     Vec3,
-    Widget,
 } from 'cc';
 import { DiceFace, PlayerState, RoomService, RoomState } from '../model/GameTypes';
 import { DICE_PER_PLAYER } from '../model/GameRules';
 import { LocalRoomService } from '../services/LocalRoomService';
-import { PlayerSeatPrefab } from './PlayerSeatPrefab';
 
 const { ccclass } = _decorator;
 
@@ -47,7 +45,8 @@ export class GameRoot extends Component {
 
     async start(): Promise<void> {
         this.setupCanvas();
-        this.content = this.createNode('RuntimeUI', this.node, 0, 0, DESIGN_WIDTH, DESIGN_HEIGHT);
+        this.content = this.requireChild(this.node, 'RuntimeUI');
+        this.cacheSceneNodes(this.content);
         this.service.subscribe((state) => {
             this.state = state;
             this.entryMode = 'room';
@@ -63,25 +62,16 @@ export class GameRoot extends Component {
     }
 
     private setupCanvas(): void {
-        if (!this.node.getComponent(UITransform)) {
-            this.node.addComponent(UITransform);
+        const transform = this.node.getComponent(UITransform);
+        if (!transform) {
+            throw new Error('Canvas is missing UITransform. Run npm run generate:scene first.');
         }
-        this.node.getComponent(UITransform)!.setContentSize(DESIGN_WIDTH, DESIGN_HEIGHT);
-        const canvas = this.node.getComponent(Canvas) || this.node.addComponent(Canvas);
+        transform.setContentSize(DESIGN_WIDTH, DESIGN_HEIGHT);
+        const canvas = this.node.getComponent(Canvas);
+        if (!canvas) {
+            throw new Error('Canvas is missing Canvas component. Run npm run generate:scene first.');
+        }
         canvas.alignCanvasWithScreen = true;
-        let widget = this.node.getComponent(Widget);
-        if (!widget) {
-            widget = this.node.addComponent(Widget);
-        }
-        widget.isAlignTop = true;
-        widget.isAlignBottom = true;
-        widget.isAlignLeft = true;
-        widget.isAlignRight = true;
-        widget.top = 0;
-        widget.bottom = 0;
-        widget.left = 0;
-        widget.right = 0;
-        widget.alignMode = Widget.AlignMode.ALWAYS;
     }
 
     private syncSelection(): void {
@@ -225,9 +215,6 @@ export class GameRoot extends Component {
 
     private drawPlayerSeat(parent: Node, state: RoomState, player: PlayerState, x: number, y: number): void {
         const seatRoot = this.createNode(`PlayerSeatPrefab-${player.id}`, parent, x, y, player.isLocal ? 630 : 190, player.isLocal ? 178 : 132);
-        if (!seatRoot.getComponent(PlayerSeatPrefab)) {
-            seatRoot.addComponent(PlayerSeatPrefab);
-        }
         const isTurn = state.currentTurnPlayerId === player.id;
         const panelColor = isTurn ? new Color(119, 52, 30, 245) : new Color(42, 24, 24, 220);
         const seatWidth = player.isLocal ? 630 : 190;
@@ -466,9 +453,11 @@ export class GameRoot extends Component {
 
     private button(parent: Node, name: string, label: string, x: number, y: number, width: number, height: number, onClick: () => void, disabled = false): Node {
         const node = this.panel(parent, name, x, y, width, height, disabled ? new Color(82, 75, 70, 230) : new Color(156, 35, 31, 245), new Color(234, 184, 94, 255));
-        let button = node.getComponent(Button);
+        const button = node.getComponent(Button);
         if (!button) {
-            button = node.addComponent(Button);
+            throw new Error(`${node.name} is missing Button. Run npm run generate:scene first.`);
+        }
+        if (!this.buttonHandlers.has(node.name)) {
             node.on(Node.EventType.TOUCH_END, (_event: EventTouch) => {
                 const handler = this.buttonHandlers.get(node.name);
                 if (handler) {
@@ -502,9 +491,9 @@ export class GameRoot extends Component {
 
     private text(parent: Node, name: string, value: string, x: number, y: number, fontSize: number, color: Color, width: number): Node {
         const node = this.createNode(name, parent, x, y, width, fontSize + 16);
-        let label = node.getComponent(Label);
+        const label = node.getComponent(Label);
         if (!label) {
-            label = node.addComponent(Label);
+            throw new Error(`${node.name} is missing Label. Run npm run generate:scene first.`);
         }
         label.string = value;
         label.fontSize = fontSize;
@@ -521,10 +510,10 @@ export class GameRoot extends Component {
         const safeName = this.safeNodeName(name);
         let node = this.nodeCache.get(key);
         if (!node) {
-            node = new Node(safeName);
-            node.parent = parent;
-            node.layer = parent.layer;
-            node.addComponent(UITransform);
+            node = parent.getChildByName(safeName);
+            if (!node) {
+                throw new Error(`Scene node "${safeName}" under "${parent.name}" is missing. Run npm run generate:scene first.`);
+            }
             this.nodeCache.set(key, node);
         }
         this.activeNodeKeys.add(key);
@@ -534,12 +523,28 @@ export class GameRoot extends Component {
         }
         node.setPosition(new Vec3(x, y, 0));
         node.layer = parent.layer;
-        let transform = node.getComponent(UITransform);
+        const transform = node.getComponent(UITransform);
         if (!transform) {
-            transform = node.addComponent(UITransform);
+            throw new Error(`${node.name} is missing UITransform. Run npm run generate:scene first.`);
         }
         transform.setContentSize(width, height);
         return node;
+    }
+
+    private cacheSceneNodes(parent: Node): void {
+        parent.children.forEach((child) => {
+            this.nodeCache.set(this.nodeKey(parent, child.name, 0, 0, 0, 0), child);
+            this.cacheSceneNodes(child);
+        });
+    }
+
+    private requireChild(parent: Node, name: string): Node {
+        const safeName = this.safeNodeName(name);
+        const child = parent.getChildByName(safeName);
+        if (!child) {
+            throw new Error(`Scene node "${safeName}" under "${parent.name}" is missing. Run npm run generate:scene first.`);
+        }
+        return child;
     }
 
     private hideUnusedNodes(): void {
@@ -552,9 +557,9 @@ export class GameRoot extends Component {
     }
 
     private graphics(node: Node): Graphics {
-        let graphics = node.getComponent(Graphics);
+        const graphics = node.getComponent(Graphics);
         if (!graphics) {
-            graphics = node.addComponent(Graphics);
+            throw new Error(`${node.name} is missing Graphics. Run npm run generate:scene first.`);
         }
         return graphics;
     }
