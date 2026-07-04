@@ -5,6 +5,7 @@ export type DiceFace = 1 | 2 | 3 | 4 | 5 | 6;
 export interface PlayerState {
     id: PlayerId;
     name: string;
+    /** Server-authoritative room seat. Clients map it to local visual positions. */
     seatIndex: number;
     isHost: boolean;
     isLocal: boolean;

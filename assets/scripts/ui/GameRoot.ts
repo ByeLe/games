@@ -208,18 +208,32 @@ export class GameRoot extends Component {
                 seatNode.active = false;
             }
         });
-        const positions = [
-            { x: 0, y: -330 },
-            { x: -240, y: 290 },
-            { x: 0, y: 385 },
-            { x: 240, y: 290 },
-            { x: -240, y: 80 },
-            { x: 240, y: 80 },
-        ];
+        const localSeatIndex = state.players.find((player) => player.id === state.localPlayerId)?.seatIndex ?? 0;
         state.players.forEach((player) => {
-            const pos = positions[player.seatIndex] || positions[0];
+            const pos = this.visualSeatPosition(player, localSeatIndex, state.players.length);
             this.drawPlayerSeat(parent, state, player, pos.x, pos.y);
         });
+    }
+
+    private visualSeatPosition(player: PlayerState, localSeatIndex: number, playerCount: number): { x: number; y: number } {
+        const relativeSeat = this.relativeSeat(player.seatIndex, localSeatIndex, playerCount);
+        const layouts: Record<number, { x: number; y: number }[]> = {
+            1: [{ x: 0, y: -330 }],
+            2: [{ x: 0, y: -330 }, { x: 0, y: 385 }],
+            3: [{ x: 0, y: -330 }, { x: -240, y: 290 }, { x: 240, y: 290 }],
+            4: [{ x: 0, y: -330 }, { x: -240, y: 290 }, { x: 0, y: 385 }, { x: 240, y: 290 }],
+            5: [{ x: 0, y: -330 }, { x: -250, y: 80 }, { x: -240, y: 290 }, { x: 240, y: 290 }, { x: 250, y: 80 }],
+            6: [{ x: 0, y: -330 }, { x: -250, y: 80 }, { x: -240, y: 290 }, { x: 0, y: 385 }, { x: 240, y: 290 }, { x: 250, y: 80 }],
+        };
+        const positions = layouts[Math.max(1, Math.min(6, playerCount))] || layouts[6];
+        return positions[relativeSeat] || positions[0];
+    }
+
+    private relativeSeat(seatIndex: number, localSeatIndex: number, playerCount: number): number {
+        if (playerCount <= 0) {
+            return 0;
+        }
+        return (seatIndex - localSeatIndex + playerCount) % playerCount;
     }
 
     private drawPlayerSeat(parent: Node, state: RoomState, player: PlayerState, x: number, y: number): void {

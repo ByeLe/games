@@ -12,7 +12,7 @@ export class LocalRoomService implements RoomService {
         const localPlayer: PlayerState = {
             id: 'player-local',
             name: localName || '我',
-            seatIndex: 0,
+            seatIndex: this.nextSeatIndex([]),
             isHost: true,
             isLocal: true,
             isReady: false,
@@ -22,7 +22,7 @@ export class LocalRoomService implements RoomService {
 
         const players = [localPlayer];
         for (let i = 0; i < 3; i += 1) {
-            players.push(this.createAiPlayer(i + 1));
+            players.push(this.createAiPlayer(players));
         }
 
         this.state = {
@@ -173,7 +173,8 @@ export class LocalRoomService implements RoomService {
         return this.state ? this.cloneState() : null;
     }
 
-    private createAiPlayer(seatIndex: number): PlayerState {
+    private createAiPlayer(existingPlayers: PlayerState[]): PlayerState {
+        const seatIndex = this.nextSeatIndex(existingPlayers);
         return {
             id: `player-ai-${seatIndex}`,
             name: AI_NAMES[seatIndex - 1] || `玩家${seatIndex + 1}`,
@@ -184,6 +185,16 @@ export class LocalRoomService implements RoomService {
             hasRolled: false,
             dice: [],
         };
+    }
+
+    private nextSeatIndex(players: PlayerState[]): number {
+        const usedSeats = new Set(players.map((player) => player.seatIndex));
+        for (let seatIndex = 0; seatIndex < MAX_PLAYERS; seatIndex += 1) {
+            if (!usedSeats.has(seatIndex)) {
+                return seatIndex;
+            }
+        }
+        throw new Error('Room is full.');
     }
 
     private scheduleAi(): void {
