@@ -28,7 +28,9 @@ export class GameRoot extends Component {
     private content: Node | null = null;
     private selectedQuantity = 1;
     private selectedFace: DiceFace = 2;
-    private nodeSerial = 0;
+    private nodeCache = new Map<string, Node>();
+    private buttonHandlers = new Map<string, () => void>();
+    private activeNodeKeys = new Set<string>();
 
     async start(): Promise<void> {
         this.setupCanvas();
@@ -85,8 +87,8 @@ export class GameRoot extends Component {
         if (!this.content || !this.state) {
             return;
         }
-        this.nodeSerial = 0;
-        this.content.removeAllChildren();
+        this.content.active = true;
+        this.activeNodeKeys.clear();
         this.drawBackground(this.content);
         this.drawTopBar(this.content, this.state);
         this.drawTable(this.content, this.state);
@@ -95,6 +97,7 @@ export class GameRoot extends Component {
         if (this.state.settlement) {
             this.drawSettlement(this.content, this.state);
         }
+        this.hideUnusedNodes();
     }
 
     private drawBackground(parent: Node): void {
@@ -115,7 +118,7 @@ export class GameRoot extends Component {
         this.panel(parent, 'TopBar', 0, 570, 660, 110, new Color(42, 20, 20, 235), new Color(202, 154, 74, 255));
         this.text(parent, `房间 ${state.roomId}`, -190, 596, 32, new Color(255, 230, 178, 255), 260);
         this.text(parent, this.phaseLabel(state), -185, 556, 24, new Color(245, 206, 135, 255), 300);
-        this.button(parent, '分享', 180, 590, 120, 52, () => {
+        this.button(parent, 'ShareButton', '分享', 180, 590, 120, 52, () => {
             const payload = this.service.getSharePayload();
             this.toast(`分享：${payload.title}`);
         });
@@ -185,34 +188,34 @@ export class GameRoot extends Component {
             return;
         }
         if (state.phase === 'lobby') {
-            this.button(parent, local.isReady ? '已准备' : '准备', -115, -570, 190, 62, () => void this.service.ready(local.id), local.isReady);
-            this.button(parent, '模拟加入', 115, -570, 190, 62, () => this.toast('本地默认已加入 4 人房'));
+            this.button(parent, 'ReadyButton', local.isReady ? '已准备' : '准备', -115, -570, 190, 62, () => void this.service.ready(local.id), local.isReady);
+            this.button(parent, 'MockJoinButton', '模拟加入', 115, -570, 190, 62, () => this.toast('本地默认已加入 4 人房'));
             return;
         }
         if (state.phase === 'rolling') {
-            this.button(parent, local.hasRolled ? '已摇骰' : '摇骰', 0, -570, 230, 62, () => void this.service.roll(local.id), local.hasRolled);
+            this.button(parent, 'RollButton', local.hasRolled ? '已摇骰' : '摇骰', 0, -570, 230, 62, () => void this.service.roll(local.id), local.hasRolled);
             return;
         }
         if (state.phase === 'bidding') {
             const isMyTurn = state.currentTurnPlayerId === local.id;
             this.drawBidPicker(parent, isMyTurn);
-            this.button(parent, '叫牌', -120, -570, 190, 62, () => void this.service.bid(local.id, this.selectedQuantity, this.selectedFace), !isMyTurn);
-            this.button(parent, '开', 120, -570, 190, 62, () => void this.service.open(local.id), !isMyTurn || !state.lastBid);
+            this.button(parent, 'BidActionButton', '叫牌', -120, -570, 190, 62, () => void this.service.bid(local.id, this.selectedQuantity, this.selectedFace), !isMyTurn);
+            this.button(parent, 'OpenActionButton', '开', 120, -570, 190, 62, () => void this.service.open(local.id), !isMyTurn || !state.lastBid);
             return;
         }
         if (state.phase === 'settlement') {
-            this.button(parent, '再来一局', 0, -570, 240, 62, () => void this.service.restart());
+            this.button(parent, 'RestartButton', '再来一局', 0, -570, 240, 62, () => void this.service.restart());
         }
     }
 
     private drawBidPicker(parent: Node, enabled: boolean): void {
         this.panel(parent, 'BidPicker', 0, -470, 540, 76, new Color(28, 24, 24, 230), new Color(154, 112, 66, 255));
-        this.button(parent, '-', -220, -470, 52, 52, () => this.changeQuantity(-1), !enabled);
+        this.button(parent, 'QuantityMinusButton', '-', -220, -470, 52, 52, () => this.changeQuantity(-1), !enabled);
         this.text(parent, `${this.selectedQuantity} 个`, -142, -477, 27, new Color(255, 233, 190, 255), 94);
-        this.button(parent, '+', -62, -470, 52, 52, () => this.changeQuantity(1), !enabled);
-        this.button(parent, '-', 62, -470, 52, 52, () => this.changeFace(-1), !enabled);
+        this.button(parent, 'QuantityPlusButton', '+', -62, -470, 52, 52, () => this.changeQuantity(1), !enabled);
+        this.button(parent, 'FaceMinusButton', '-', 62, -470, 52, 52, () => this.changeFace(-1), !enabled);
         this.drawDie(parent, 136, -470, 40, this.selectedFace, !enabled);
-        this.button(parent, '+', 220, -470, 52, 52, () => this.changeFace(1), !enabled);
+        this.button(parent, 'FacePlusButton', '+', 220, -470, 52, 52, () => this.changeFace(1), !enabled);
     }
 
     private drawSettlement(parent: Node, state: RoomState): void {
@@ -265,6 +268,7 @@ export class GameRoot extends Component {
     private drawDie(parent: Node, x: number, y: number, size: number, face: DiceFace, muted: boolean): void {
         const node = this.createNode(`Die-${face}`, parent, x, y, size, size);
         const graphics = node.addComponent(Graphics);
+        graphics.clear();
         graphics.fillColor = muted ? new Color(160, 145, 124, 255) : new Color(255, 248, 228, 255);
         graphics.roundRect(-size / 2, -size / 2, size, size, size * 0.16);
         graphics.fill();
@@ -296,6 +300,7 @@ export class GameRoot extends Component {
     private drawCup(parent: Node, x: number, y: number, scale: number): void {
         const node = this.createNode('Cup', parent, x, y, 120 * scale, 120 * scale);
         const graphics = node.addComponent(Graphics);
+        graphics.clear();
         graphics.fillColor = new Color(101, 18, 25, 255);
         graphics.roundRect(-48 * scale, -45 * scale, 96 * scale, 90 * scale, 16 * scale);
         graphics.fill();
@@ -311,6 +316,7 @@ export class GameRoot extends Component {
     private drawAvatar(parent: Node, player: PlayerState, x: number, y: number, size: number): void {
         const node = this.createNode(`Avatar-${player.id}`, parent, x, y, size, size);
         const graphics = node.addComponent(Graphics);
+        graphics.clear();
         const avatarColors = [
             new Color(242, 178, 83, 255),
             new Color(91, 165, 195, 255),
@@ -333,22 +339,35 @@ export class GameRoot extends Component {
         graphics.fill();
     }
 
-    private button(parent: Node, label: string, x: number, y: number, width: number, height: number, onClick: () => void, disabled = false): Node {
-        const node = this.panel(parent, `Button-${this.nodeSerial}`, x, y, width, height, disabled ? new Color(82, 75, 70, 230) : new Color(156, 35, 31, 245), new Color(234, 184, 94, 255));
-        const button = node.addComponent(Button);
+    private button(parent: Node, name: string, label: string, x: number, y: number, width: number, height: number, onClick: () => void, disabled = false): Node {
+        const node = this.panel(parent, name, x, y, width, height, disabled ? new Color(82, 75, 70, 230) : new Color(156, 35, 31, 245), new Color(234, 184, 94, 255));
+        let button = node.getComponent(Button);
+        if (!button) {
+            button = node.addComponent(Button);
+            node.on(Node.EventType.TOUCH_END, (_event: EventTouch) => {
+                const handler = this.buttonHandlers.get(node.name);
+                if (handler) {
+                    handler();
+                }
+            }, this);
+        }
         button.interactable = !disabled;
-        node.on(Node.EventType.TOUCH_END, (_event: EventTouch) => {
+        this.buttonHandlers.set(node.name, () => {
             if (!disabled) {
                 onClick();
             }
-        }, this);
+        });
         this.text(node, label, 0, -4, Math.min(30, height * 0.42), disabled ? new Color(186, 176, 162, 255) : new Color(255, 235, 188, 255), width - 16);
         return node;
     }
 
     private panel(parent: Node, name: string, x: number, y: number, width: number, height: number, fill: Color, stroke: Color): Node {
         const node = this.createNode(name, parent, x, y, width, height);
-        const graphics = node.addComponent(Graphics);
+        let graphics = node.getComponent(Graphics);
+        if (!graphics) {
+            graphics = node.addComponent(Graphics);
+        }
+        graphics.clear();
         graphics.fillColor = fill;
         graphics.roundRect(-width / 2, -height / 2, width, height, 16);
         graphics.fill();
@@ -361,7 +380,10 @@ export class GameRoot extends Component {
 
     private text(parent: Node, value: string, x: number, y: number, fontSize: number, color: Color, width: number): Node {
         const node = this.createNode('Text', parent, x, y, width, fontSize + 16);
-        const label = node.addComponent(Label);
+        let label = node.getComponent(Label);
+        if (!label) {
+            label = node.addComponent(Label);
+        }
         label.string = value;
         label.fontSize = fontSize;
         label.lineHeight = fontSize + 7;
@@ -373,19 +395,45 @@ export class GameRoot extends Component {
     }
 
     private createNode(name: string, parent: Node, x: number, y: number, width: number, height: number): Node {
-        const node = new Node(this.nodeName(name));
-        node.parent = parent;
+        const key = this.nodeKey(parent, name, x, y, width, height);
+        const safeName = this.safeNodeName(name);
+        let node = this.nodeCache.get(key);
+        if (!node) {
+            node = new Node(safeName);
+            node.parent = parent;
+            node.layer = parent.layer;
+            node.addComponent(UITransform);
+            this.nodeCache.set(key, node);
+        }
+        this.activeNodeKeys.add(key);
+        node.active = true;
+        if (node.parent !== parent) {
+            node.parent = parent;
+        }
         node.setPosition(new Vec3(x, y, 0));
         node.layer = parent.layer;
-        const transform = node.addComponent(UITransform);
+        let transform = node.getComponent(UITransform);
+        if (!transform) {
+            transform = node.addComponent(UITransform);
+        }
         transform.setContentSize(width, height);
         return node;
     }
 
-    private nodeName(name: string): string {
-        const safeName = name.replace(/[^A-Za-z0-9_-]/g, '');
-        this.nodeSerial += 1;
-        return `${safeName || 'Node'}-${this.nodeSerial}`;
+    private hideUnusedNodes(): void {
+        this.nodeCache.forEach((node, key) => {
+            if (node !== this.content && !this.activeNodeKeys.has(key)) {
+                node.active = false;
+            }
+        });
+    }
+
+    private nodeKey(parent: Node, name: string, x: number, y: number, width: number, height: number): string {
+        return `${parent.name}/${this.safeNodeName(name)}@${Math.round(x)},${Math.round(y)},${Math.round(width)},${Math.round(height)}`;
+    }
+
+    private safeNodeName(name: string): string {
+        return name.replace(/[^A-Za-z0-9_-]/g, '') || 'Node';
     }
 
     private playerStatus(state: RoomState, player: PlayerState): string {
