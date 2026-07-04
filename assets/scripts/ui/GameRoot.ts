@@ -42,6 +42,7 @@ export class GameRoot extends Component {
     private isRollingLocal = false;
     private localCupOffsetY = 0;
     private cupDragStartY = 0;
+    private isDraggingCup = false;
     private dragBoundNodes = new Set<string>();
 
     async start(): Promise<void> {
@@ -282,11 +283,11 @@ export class GameRoot extends Component {
             return;
         }
         const center = this.createNode('RollingCenterArea', parent, 0, 80, 560, 360);
-        this.panel(center, 'RollingCenterPanel', 0, 0, 560, 360, new Color(24, 20, 20, 230), new Color(230, 180, 88, 255));
-        this.text(center, 'RollingCenterTitleText', local.hasRolled ? '上拖骰盅查看自己的牌' : '点击摇骰后查看自己的牌', 0, 145, 28, new Color(255, 230, 178, 255), 500);
-        this.drawDiceRow(center, local.dice, 0, -18, 62, 'CenterDiceRow');
-        const coverY = 12 + this.localCupOffsetY;
-        const cup = this.drawCup(center, 0, coverY, 1.65, `CenterRollingCup-${local.id}`);
+        this.text(center, 'RollingCenterTitleText', local.hasRolled ? '上拖骰盅查看自己的牌' : '摇完后上拖骰盅看牌', 0, 152, 28, new Color(255, 230, 178, 255), 500);
+        this.drawDiceTray(center, 0, -38, 1.1);
+        this.drawDiceRow(center, local.dice, 0, -25, 62, 'CenterDiceRow');
+        const coverY = -2 + this.localCupOffsetY;
+        const cup = this.drawCup(center, 0, coverY, 1.75, `CenterRollingCup-${local.id}`);
         this.bindCupDrag(cup);
         this.text(center, 'CupDragHintText', '上拖看牌 · 下拖盖住', 0, -146, 22, new Color(218, 201, 168, 255), 500);
     }
@@ -369,6 +370,26 @@ export class GameRoot extends Component {
         });
     }
 
+    private drawDiceTray(parent: Node, x: number, y: number, scale: number): Node {
+        const node = this.createNode('DiceTray', parent, x, y, 390 * scale, 150 * scale);
+        const graphics = this.graphics(node);
+        graphics.clear();
+        graphics.fillColor = new Color(72, 36, 23, 255);
+        graphics.ellipse(0, -8 * scale, 180 * scale, 58 * scale);
+        graphics.fill();
+        graphics.fillColor = new Color(36, 108, 73, 255);
+        graphics.ellipse(0, 2 * scale, 152 * scale, 45 * scale);
+        graphics.fill();
+        graphics.strokeColor = new Color(229, 179, 82, 255);
+        graphics.lineWidth = 5 * scale;
+        graphics.ellipse(0, 2 * scale, 152 * scale, 45 * scale);
+        graphics.stroke();
+        graphics.fillColor = new Color(25, 55, 43, 170);
+        graphics.ellipse(0, -6 * scale, 122 * scale, 24 * scale);
+        graphics.fill();
+        return node;
+    }
+
     private pipPositions(face: DiceFace, offset: number): { x: number; y: number }[] {
         const map: Record<DiceFace, { x: number; y: number }[]> = {
             1: [{ x: 0, y: 0 }],
@@ -382,19 +403,38 @@ export class GameRoot extends Component {
     }
 
     private drawCup(parent: Node, x: number, y: number, scale: number, name = 'Cup'): Node {
-        const node = this.createNode(name, parent, x, y, 120 * scale, 120 * scale);
+        const node = this.createNode(name, parent, x, y, 150 * scale, 150 * scale);
         const graphics = this.graphics(node);
         graphics.clear();
-        graphics.fillColor = new Color(101, 18, 25, 255);
-        graphics.roundRect(-48 * scale, -45 * scale, 96 * scale, 90 * scale, 16 * scale);
+        graphics.fillColor = new Color(74, 12, 20, 255);
+        graphics.moveTo(-58 * scale, -52 * scale);
+        graphics.lineTo(58 * scale, -52 * scale);
+        graphics.lineTo(44 * scale, 46 * scale);
+        graphics.lineTo(-44 * scale, 46 * scale);
+        graphics.close();
         graphics.fill();
-        graphics.fillColor = new Color(151, 38, 35, 255);
-        graphics.ellipse(0, 42 * scale, 52 * scale, 15 * scale);
+        graphics.fillColor = new Color(130, 24, 31, 255);
+        graphics.moveTo(-43 * scale, -42 * scale);
+        graphics.lineTo(43 * scale, -42 * scale);
+        graphics.lineTo(34 * scale, 34 * scale);
+        graphics.lineTo(-34 * scale, 34 * scale);
+        graphics.close();
+        graphics.fill();
+        graphics.fillColor = new Color(172, 43, 38, 255);
+        graphics.ellipse(0, 48 * scale, 50 * scale, 15 * scale);
         graphics.fill();
         graphics.strokeColor = new Color(229, 179, 82, 255);
-        graphics.lineWidth = 5 * scale;
-        graphics.ellipse(0, 42 * scale, 52 * scale, 15 * scale);
+        graphics.lineWidth = 4 * scale;
+        graphics.ellipse(0, 48 * scale, 50 * scale, 15 * scale);
         graphics.stroke();
+        graphics.strokeColor = new Color(229, 179, 82, 230);
+        graphics.lineWidth = 3 * scale;
+        graphics.moveTo(-49 * scale, -28 * scale);
+        graphics.lineTo(49 * scale, -28 * scale);
+        graphics.stroke();
+        graphics.fillColor = new Color(35, 10, 13, 120);
+        graphics.ellipse(0, -53 * scale, 58 * scale, 12 * scale);
+        graphics.fill();
         return node;
     }
 
@@ -526,7 +566,7 @@ export class GameRoot extends Component {
                 if (player.isLocal && !player.hasRolled) {
                     activeRollingIds.add(player.id);
                     const node = this.findNodeBySafeName(`CenterRollingCup-${player.id}`);
-                    if (node && !this.rollingAnimationIds.has(player.id)) {
+                    if (node && !this.rollingAnimationIds.has(player.id) && this.localCupOffsetY === 0 && !this.isDraggingCup && !this.isRollingLocal) {
                         this.startIdleShake(node);
                         this.rollingAnimationIds.add(player.id);
                     }
@@ -548,6 +588,8 @@ export class GameRoot extends Component {
         if (this.isRollingLocal) {
             return;
         }
+        this.localCupOffsetY = 0;
+        this.render();
         const node = this.findNodeBySafeName(`CenterRollingCup-${playerId}`);
         if (!node) {
             void this.service.roll(playerId);
@@ -598,19 +640,24 @@ export class GameRoot extends Component {
         }
         this.dragBoundNodes.add(node.name);
         node.on(Node.EventType.TOUCH_START, (event: EventTouch) => {
+            this.isDraggingCup = true;
+            this.stopNodeAnimation(node);
+            this.rollingAnimationIds.clear();
             this.cupDragStartY = event.getUILocation().y - this.localCupOffsetY;
         }, this);
         node.on(Node.EventType.TOUCH_MOVE, (event: EventTouch) => {
             const nextOffset = event.getUILocation().y - this.cupDragStartY;
-            this.localCupOffsetY = Math.max(0, Math.min(135, nextOffset));
+            this.localCupOffsetY = Math.max(0, Math.min(145, nextOffset));
             this.render();
         }, this);
         node.on(Node.EventType.TOUCH_END, () => {
-            this.localCupOffsetY = this.localCupOffsetY > 68 ? 120 : 0;
+            this.isDraggingCup = false;
+            this.localCupOffsetY = this.localCupOffsetY > 72 ? 128 : 0;
             this.render();
         }, this);
         node.on(Node.EventType.TOUCH_CANCEL, () => {
-            this.localCupOffsetY = this.localCupOffsetY > 68 ? 120 : 0;
+            this.isDraggingCup = false;
+            this.localCupOffsetY = this.localCupOffsetY > 72 ? 128 : 0;
             this.render();
         }, this);
     }
@@ -630,8 +677,8 @@ export class GameRoot extends Component {
         return null;
     }
 
-    private nodeKey(parent: Node, name: string, x: number, y: number, width: number, height: number): string {
-        return `${parent.name}/${this.safeNodeName(name)}@${Math.round(x)},${Math.round(y)},${Math.round(width)},${Math.round(height)}`;
+    private nodeKey(parent: Node, name: string, _x: number, _y: number, _width: number, _height: number): string {
+        return `${parent.uuid}/${this.safeNodeName(name)}`;
     }
 
     private safeNodeName(name: string): string {
