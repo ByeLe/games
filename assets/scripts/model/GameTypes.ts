@@ -50,6 +50,7 @@ export type RoomListener = (state: RoomState) => void;
 export interface SharePayload {
     roomId: string;
     title: string;
+    query: string;
 }
 
 export interface RoomService {
@@ -64,4 +65,3 @@ export interface RoomService {
     subscribe(listener: RoomListener): () => void;
     getState(): RoomState | null;
 }
-

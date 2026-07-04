@@ -60,6 +60,7 @@ export class LocalRoomService implements RoomService {
         return {
             roomId: state.roomId,
             title: `加入我的大话骰房间：${state.roomId}`,
+            query: `roomId=${state.roomId}`,
         };
     }
 
@@ -249,4 +250,3 @@ export class LocalRoomService implements RoomService {
         return JSON.parse(JSON.stringify(this.ensureState())) as RoomState;
     }
 }
-

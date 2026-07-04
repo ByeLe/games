@@ -17,17 +17,22 @@ import {
 import { DiceFace, PlayerState, RoomService, RoomState } from '../model/GameTypes';
 import { DICE_PER_PLAYER } from '../model/GameRules';
 import { LocalRoomService } from '../services/LocalRoomService';
+import { PlayerSeatPrefab } from './PlayerSeatPrefab';
 
 const { ccclass } = _decorator;
 
 const DESIGN_WIDTH = 720;
 const DESIGN_HEIGHT = 1280;
+type EntryMode = 'menu' | 'room';
+type RoomMode = 'single' | 'online';
 
 @ccclass('GameRoot')
 export class GameRoot extends Component {
     private service: RoomService = new LocalRoomService();
     private state: RoomState | null = null;
     private content: Node | null = null;
+    private entryMode: EntryMode = 'menu';
+    private roomMode: RoomMode = 'single';
     private selectedQuantity = 1;
     private selectedFace: DiceFace = 2;
     private nodeCache = new Map<string, Node>();
@@ -35,16 +40,25 @@ export class GameRoot extends Component {
     private activeNodeKeys = new Set<string>();
     private rollingAnimationIds = new Set<string>();
     private isRollingLocal = false;
+    private localCupOffsetY = 0;
+    private cupDragStartY = 0;
+    private dragBoundNodes = new Set<string>();
 
     async start(): Promise<void> {
         this.setupCanvas();
         this.content = this.createNode('RuntimeUI', this.node, 0, 0, DESIGN_WIDTH, DESIGN_HEIGHT);
         this.service.subscribe((state) => {
             this.state = state;
+            this.entryMode = 'room';
             this.syncSelection();
             this.render();
         });
-        await this.service.createRoom('我');
+        const sharedRoomId = this.getLaunchRoomId();
+        if (sharedRoomId) {
+            await this.startRoom('online', sharedRoomId);
+            return;
+        }
+        this.render();
     }
 
     private setupCanvas(): void {
@@ -87,17 +101,44 @@ export class GameRoot extends Component {
         }
     }
 
+    private async startRoom(mode: RoomMode, roomId?: string): Promise<void> {
+        this.roomMode = mode;
+        this.entryMode = 'room';
+        this.localCupOffsetY = 0;
+        if (roomId) {
+            await this.service.joinRoom(roomId, '我');
+            this.toast(`通过分享加入房间 ${roomId}`);
+            return;
+        }
+        await this.service.createRoom('我');
+        if (mode === 'online') {
+            this.toast('联网模式：当前使用本地模拟，后续接微信云开发接口。');
+        }
+    }
+
+    private getLaunchRoomId(): string {
+        const wxApi = (globalThis as { wx?: { getLaunchOptionsSync?: () => { query?: Record<string, string> } } }).wx;
+        const query = wxApi?.getLaunchOptionsSync?.().query;
+        return query?.roomId || query?.room || '';
+    }
+
     private render(): void {
-        if (!this.content || !this.state) {
+        if (!this.content) {
             return;
         }
         this.content.active = true;
         this.activeNodeKeys.clear();
         this.drawBackground(this.content);
+        if (this.entryMode === 'menu' || !this.state) {
+            this.drawEntryMenu(this.content);
+            this.hideUnusedNodes();
+            return;
+        }
         this.drawTopBar(this.content, this.state);
         this.drawTable(this.content, this.state);
         this.drawPlayers(this.content, this.state);
         this.drawControls(this.content, this.state);
+        this.drawRollingCenter(this.content, this.state);
         if (this.state.settlement) {
             this.drawSettlement(this.content, this.state);
         }
@@ -120,15 +161,24 @@ export class GameRoot extends Component {
         graphics.fill();
     }
 
+    private drawEntryMenu(parent: Node): void {
+        this.panel(parent, 'EntryModePanel', 0, 95, 620, 460, new Color(28, 21, 22, 245), new Color(233, 187, 95, 255));
+        this.text(parent, 'EntryTitleText', '大话骰', 0, 260, 52, new Color(255, 228, 162, 255), 560);
+        this.text(parent, 'EntryHintText', '选择玩法后创建房间', 0, 198, 27, new Color(238, 211, 166, 255), 560);
+        this.button(parent, 'SingleModeButton', '单机模式', 0, 72, 360, 78, () => void this.startRoom('single'));
+        this.button(parent, 'OnlineModeButton', '联网模式', 0, -42, 360, 78, () => void this.startRoom('online'));
+        this.text(parent, 'OnlineReservedText', '联网模式已预留微信云开发接口，当前先走本地模拟', 0, -138, 22, new Color(218, 201, 168, 255), 540);
+    }
+
     private drawTopBar(parent: Node, state: RoomState): void {
         this.panel(parent, 'TopBar', 0, 570, 660, 110, new Color(42, 20, 20, 235), new Color(202, 154, 74, 255));
-        this.text(parent, `房间 ${state.roomId}`, -190, 596, 32, new Color(255, 230, 178, 255), 260);
-        this.text(parent, this.phaseLabel(state), -185, 556, 24, new Color(245, 206, 135, 255), 300);
+        this.text(parent, 'RoomIdText', `房间 ${state.roomId}`, -190, 596, 32, new Color(255, 230, 178, 255), 260);
+        this.text(parent, 'PhaseText', `${this.phaseLabel(state)} · ${this.roomMode === 'single' ? '单机' : '联网'}`, -185, 556, 24, new Color(245, 206, 135, 255), 300);
         this.button(parent, 'ShareButton', '分享', 180, 590, 120, 52, () => {
             const payload = this.service.getSharePayload();
-            this.toast(`分享：${payload.title}`);
+            this.toast(`分享：${payload.title}（${payload.query}）`);
         });
-        this.text(parent, state.message, 0, 508, 24, new Color(255, 238, 203, 255), 640);
+        this.text(parent, 'MessageText', state.message, 0, 508, 24, new Color(255, 238, 203, 255), 640);
     }
 
     private drawTable(parent: Node, state: RoomState): void {
@@ -147,14 +197,14 @@ export class GameRoot extends Component {
         graphics.stroke();
 
         const lastBid = state.lastBid ? `${this.playerName(state, state.lastBid.playerId)}：${state.lastBid.quantity} 个 ${state.lastBid.face}` : '等待叫牌';
-        this.text(parent, lastBid, 0, 165, 34, new Color(255, 237, 184, 255), 480);
-        this.text(parent, state.onesAreWild ? '规则：1 当前为万能点' : '规则：1 已关闭万能', 0, 112, 24, new Color(219, 242, 209, 255), 420);
+        this.text(parent, 'LastBidText', lastBid, 0, 165, 34, new Color(255, 237, 184, 255), 480);
+        this.text(parent, 'RuleText', state.onesAreWild ? '规则：1 当前为万能点' : '规则：1 已关闭万能', 0, 112, 24, new Color(219, 242, 209, 255), 420);
         this.drawBidHistory(parent, state);
     }
 
     private drawBidHistory(parent: Node, state: RoomState): void {
         const history = state.bidHistory.slice(-4).map((bid) => `${this.playerName(state, bid.playerId)} ${bid.quantity}个${bid.face}`).join('  /  ');
-        this.text(parent, history || '叫牌记录会显示在这里', 0, -105, 22, new Color(234, 215, 168, 255), 560);
+        this.text(parent, 'BidHistoryText', history || '叫牌记录会显示在这里', 0, -105, 22, new Color(234, 215, 168, 255), 560);
     }
 
     private drawPlayers(parent: Node, state: RoomState): void {
@@ -173,23 +223,27 @@ export class GameRoot extends Component {
     }
 
     private drawPlayerSeat(parent: Node, state: RoomState, player: PlayerState, x: number, y: number): void {
+        const seatRoot = this.createNode(`PlayerSeatPrefab-${player.id}`, parent, x, y, player.isLocal ? 630 : 190, player.isLocal ? 178 : 132);
+        if (!seatRoot.getComponent(PlayerSeatPrefab)) {
+            seatRoot.addComponent(PlayerSeatPrefab);
+        }
         const isTurn = state.currentTurnPlayerId === player.id;
         const panelColor = isTurn ? new Color(119, 52, 30, 245) : new Color(42, 24, 24, 220);
         const seatWidth = player.isLocal ? 630 : 190;
         const seatHeight = player.isLocal ? 178 : 132;
-        this.panel(parent, `Seat-${player.id}`, x, y, seatWidth, seatHeight, panelColor, isTurn ? new Color(255, 214, 98, 255) : new Color(151, 111, 71, 255));
-        this.drawAvatar(parent, player, x - seatWidth / 2 + (player.isLocal ? 58 : 34), y + (player.isLocal ? 38 : 25), player.isLocal ? 58 : 38);
-        this.text(parent, `${player.name}${player.isHost ? ' 房主' : ''}`, x + (player.isLocal ? 42 : 18), y + (player.isLocal ? 55 : 42), player.isLocal ? 28 : 21, new Color(255, 233, 190, 255), player.isLocal ? 410 : 118);
-        this.text(parent, this.playerStatus(state, player), x + (player.isLocal ? 42 : 18), y + (player.isLocal ? 22 : 13), player.isLocal ? 22 : 18, new Color(230, 205, 155, 255), player.isLocal ? 410 : 118);
+        this.panel(seatRoot, 'SeatPanel', 0, 0, seatWidth, seatHeight, panelColor, isTurn ? new Color(255, 214, 98, 255) : new Color(151, 111, 71, 255));
+        this.drawAvatar(seatRoot, player, -seatWidth / 2 + (player.isLocal ? 58 : 34), player.isLocal ? 38 : 25, player.isLocal ? 58 : 38);
+        this.text(seatRoot, 'PlayerNameText', `${player.name}${player.isHost ? ' 房主' : ''}`, player.isLocal ? 42 : 18, player.isLocal ? 55 : 42, player.isLocal ? 28 : 21, new Color(255, 233, 190, 255), player.isLocal ? 410 : 118);
+        this.text(seatRoot, 'PlayerStatusText', this.playerStatus(state, player), player.isLocal ? 42 : 18, player.isLocal ? 22 : 13, player.isLocal ? 22 : 18, new Color(230, 205, 155, 255), player.isLocal ? 410 : 118);
 
         if (player.isLocal || state.phase === 'settlement') {
             if (state.phase === 'rolling' && !player.hasRolled) {
-                this.drawCup(parent, x + (player.isLocal ? 42 : 0), y - (player.isLocal ? 43 : 30), player.isLocal ? 0.74 : 0.48, `RollingCup-${player.id}`);
+                this.drawCup(seatRoot, player.isLocal ? 42 : 0, player.isLocal ? -43 : -30, player.isLocal ? 0.55 : 0.48, `SeatRollingCup-${player.id}`);
             } else {
-                this.drawDiceRow(parent, player.dice, x + (player.isLocal ? 42 : 0), y - (player.isLocal ? 43 : 30), player.isLocal ? 50 : 28);
+                this.drawDiceRow(seatRoot, player.dice, player.isLocal ? 42 : 0, player.isLocal ? -43 : -30, player.isLocal ? 50 : 28, `SeatDiceRow-${player.id}`);
             }
         } else {
-            this.drawCup(parent, x, y - 32, 0.48, `Cup-${player.id}`);
+            this.drawCup(seatRoot, 0, -32, 0.48, `SeatCup-${player.id}`);
         }
     }
 
@@ -219,39 +273,57 @@ export class GameRoot extends Component {
         }
     }
 
+    private drawRollingCenter(parent: Node, state: RoomState): void {
+        if (state.phase !== 'rolling') {
+            return;
+        }
+        const local = state.players.find((player) => player.isLocal);
+        if (!local) {
+            return;
+        }
+        const center = this.createNode('RollingCenterArea', parent, 0, 80, 560, 360);
+        this.panel(center, 'RollingCenterPanel', 0, 0, 560, 360, new Color(24, 20, 20, 230), new Color(230, 180, 88, 255));
+        this.text(center, 'RollingCenterTitleText', local.hasRolled ? '上拖骰盅查看自己的牌' : '点击摇骰后查看自己的牌', 0, 145, 28, new Color(255, 230, 178, 255), 500);
+        this.drawDiceRow(center, local.dice, 0, -18, 62, 'CenterDiceRow');
+        const coverY = 12 + this.localCupOffsetY;
+        const cup = this.drawCup(center, 0, coverY, 1.65, `CenterRollingCup-${local.id}`);
+        this.bindCupDrag(cup);
+        this.text(center, 'CupDragHintText', '上拖看牌 · 下拖盖住', 0, -146, 22, new Color(218, 201, 168, 255), 500);
+    }
+
     private drawBidPicker(parent: Node, enabled: boolean): void {
         this.panel(parent, 'BidPicker', 0, -470, 540, 76, new Color(28, 24, 24, 230), new Color(154, 112, 66, 255));
         this.button(parent, 'QuantityMinusButton', '-', -220, -470, 52, 52, () => this.changeQuantity(-1), !enabled);
-        this.text(parent, `${this.selectedQuantity} 个`, -142, -477, 27, new Color(255, 233, 190, 255), 94);
+        this.text(parent, 'SelectedQuantityText', `${this.selectedQuantity} 个`, -142, -477, 27, new Color(255, 233, 190, 255), 94);
         this.button(parent, 'QuantityPlusButton', '+', -62, -470, 52, 52, () => this.changeQuantity(1), !enabled);
         this.button(parent, 'FaceMinusButton', '-', 62, -470, 52, 52, () => this.changeFace(-1), !enabled);
-        this.drawDie(parent, 136, -470, 40, this.selectedFace, !enabled);
+        this.drawDie(parent, 136, -470, 40, this.selectedFace, !enabled, 'SelectedFaceDie');
         this.button(parent, 'FacePlusButton', '+', 220, -470, 52, 52, () => this.changeFace(1), !enabled);
     }
 
     private drawSettlement(parent: Node, state: RoomState): void {
         const settlement = state.settlement!;
         this.panel(parent, 'Settlement', 0, 35, 620, 560, new Color(22, 18, 18, 248), new Color(238, 190, 98, 255));
-        this.text(parent, '开牌结算', 0, 280, 40, new Color(255, 228, 162, 255), 560);
-        this.text(parent, `上一手：${this.playerName(state, settlement.lastBid.playerId)} 叫 ${settlement.lastBid.quantity} 个`, -36, 226, 27, new Color(245, 219, 174, 255), 450);
-        this.drawDie(parent, 225, 226, 40, settlement.lastBid.face, false);
-        this.text(parent, `实际计数：${settlement.effectiveCount}  /  ${settlement.bidSucceeded ? '叫牌成立' : '叫牌失败'}`, 0, 182, 27, new Color(245, 219, 174, 255), 560);
-        this.text(parent, `输家：${this.playerName(state, settlement.loserId)}`, 0, 140, 32, new Color(255, 116, 96, 255), 560);
+        this.text(parent, 'SettlementTitleText', '开牌结算', 0, 280, 40, new Color(255, 228, 162, 255), 560);
+        this.text(parent, 'SettlementLastBidText', `上一手：${this.playerName(state, settlement.lastBid.playerId)} 叫 ${settlement.lastBid.quantity} 个`, -36, 226, 27, new Color(245, 219, 174, 255), 450);
+        this.drawDie(parent, 225, 226, 40, settlement.lastBid.face, false, 'SettlementLastBidDie');
+        this.text(parent, 'SettlementCountText', `实际计数：${settlement.effectiveCount}  /  ${settlement.bidSucceeded ? '叫牌成立' : '叫牌失败'}`, 0, 182, 27, new Color(245, 219, 174, 255), 560);
+        this.text(parent, 'SettlementLoserText', `输家：${this.playerName(state, settlement.loserId)}`, 0, 140, 32, new Color(255, 116, 96, 255), 560);
         for (let face = 1; face <= 6; face += 1) {
             const col = (face - 1) % 3;
             const row = Math.floor((face - 1) / 3);
             const faceValue = face as DiceFace;
             const itemX = -205 + col * 205;
             const itemY = 72 - row * 70;
-            this.drawDie(parent, itemX - 34, itemY, 38, faceValue, false);
-            this.text(parent, `x ${settlement.totals[faceValue]}`, itemX + 34, itemY - 4, 25, new Color(255, 240, 206, 255), 82);
+            this.drawDie(parent, itemX - 34, itemY, 38, faceValue, false, `SettlementFace${faceValue}Die`);
+            this.text(parent, `SettlementFace${faceValue}CountText`, `x ${settlement.totals[faceValue]}`, itemX + 34, itemY - 4, 25, new Color(255, 240, 206, 255), 82);
         }
-        this.text(parent, '玩家骰面', 0, -80, 24, new Color(230, 205, 155, 255), 540);
+        this.text(parent, 'SettlementPlayersTitleText', '玩家骰面', 0, -80, 24, new Color(230, 205, 155, 255), 540);
         state.players.forEach((player, index) => {
             const y = -120 - index * 42;
             this.drawAvatar(parent, player, -250, y, 26);
-            this.text(parent, player.name, -198, y - 4, 20, new Color(255, 233, 190, 255), 82);
-            this.drawDiceRow(parent, player.dice, 20, y, 30);
+            this.text(parent, `SettlementPlayer${player.seatIndex}NameText`, player.name, -198, y - 4, 20, new Color(255, 233, 190, 255), 82);
+            this.drawDiceRow(parent, player.dice, 20, y, 30, `SettlementDiceRow-${player.id}`);
         });
     }
 
@@ -267,17 +339,18 @@ export class GameRoot extends Component {
         this.render();
     }
 
-    private drawDiceRow(parent: Node, dice: DiceFace[], x: number, y: number, size: number): void {
+    private drawDiceRow(parent: Node, dice: DiceFace[], x: number, y: number, size: number, name = 'DiceRow'): void {
+        const row = this.createNode(name, parent, x, y, size * 6, size);
         const shown = dice.length ? dice : [1, 2, 3, 4, 5] as DiceFace[];
         const gap = size + 8;
-        const start = x - ((shown.length - 1) * gap) / 2;
+        const start = -((shown.length - 1) * gap) / 2;
         shown.forEach((face, index) => {
-            this.drawDie(parent, start + index * gap, y, size, face, dice.length === 0);
+            this.drawDie(row, start + index * gap, 0, size, face, dice.length === 0, `DieSlot${index + 1}`);
         });
     }
 
-    private drawDie(parent: Node, x: number, y: number, size: number, face: DiceFace, muted: boolean): void {
-        const node = this.createNode(`Die-${face}`, parent, x, y, size, size);
+    private drawDie(parent: Node, x: number, y: number, size: number, face: DiceFace, muted: boolean, name = `DieFace${face}`): void {
+        const node = this.createNode(name, parent, x, y, size, size);
         const graphics = this.graphics(node);
         graphics.clear();
         graphics.fillColor = muted ? new Color(160, 145, 124, 255) : new Color(255, 248, 228, 255);
@@ -308,7 +381,7 @@ export class GameRoot extends Component {
         return map[face];
     }
 
-    private drawCup(parent: Node, x: number, y: number, scale: number, name = 'Cup'): void {
+    private drawCup(parent: Node, x: number, y: number, scale: number, name = 'Cup'): Node {
         const node = this.createNode(name, parent, x, y, 120 * scale, 120 * scale);
         const graphics = this.graphics(node);
         graphics.clear();
@@ -322,6 +395,7 @@ export class GameRoot extends Component {
         graphics.lineWidth = 5 * scale;
         graphics.ellipse(0, 42 * scale, 52 * scale, 15 * scale);
         graphics.stroke();
+        return node;
     }
 
     private drawAvatar(parent: Node, player: PlayerState, x: number, y: number, size: number): void {
@@ -368,7 +442,7 @@ export class GameRoot extends Component {
                 onClick();
             }
         });
-        this.text(node, label, 0, -4, Math.min(30, height * 0.42), disabled ? new Color(186, 176, 162, 255) : new Color(255, 235, 188, 255), width - 16);
+        this.text(node, 'ButtonLabelText', label, 0, -4, Math.min(30, height * 0.42), disabled ? new Color(186, 176, 162, 255) : new Color(255, 235, 188, 255), width - 16);
         return node;
     }
 
@@ -386,8 +460,8 @@ export class GameRoot extends Component {
         return node;
     }
 
-    private text(parent: Node, value: string, x: number, y: number, fontSize: number, color: Color, width: number): Node {
-        const node = this.createNode('Text', parent, x, y, width, fontSize + 16);
+    private text(parent: Node, name: string, value: string, x: number, y: number, fontSize: number, color: Color, width: number): Node {
+        const node = this.createNode(name, parent, x, y, width, fontSize + 16);
         let label = node.getComponent(Label);
         if (!label) {
             label = node.addComponent(Label);
@@ -449,9 +523,9 @@ export class GameRoot extends Component {
         const activeRollingIds = new Set<string>();
         if (state.phase === 'rolling') {
             state.players.forEach((player) => {
-                if (!player.hasRolled) {
+                if (player.isLocal && !player.hasRolled) {
                     activeRollingIds.add(player.id);
-                    const node = this.findNodeBySafeName(`RollingCup-${player.id}`);
+                    const node = this.findNodeBySafeName(`CenterRollingCup-${player.id}`);
                     if (node && !this.rollingAnimationIds.has(player.id)) {
                         this.startIdleShake(node);
                         this.rollingAnimationIds.add(player.id);
@@ -461,7 +535,7 @@ export class GameRoot extends Component {
         }
         this.rollingAnimationIds.forEach((playerId) => {
             if (!activeRollingIds.has(playerId)) {
-                const node = this.findNodeBySafeName(`RollingCup-${playerId}`);
+                const node = this.findNodeBySafeName(`CenterRollingCup-${playerId}`);
                 if (node) {
                     this.stopNodeAnimation(node);
                 }
@@ -474,7 +548,7 @@ export class GameRoot extends Component {
         if (this.isRollingLocal) {
             return;
         }
-        const node = this.findNodeBySafeName(`RollingCup-${playerId}`);
+        const node = this.findNodeBySafeName(`CenterRollingCup-${playerId}`);
         if (!node) {
             void this.service.roll(playerId);
             return;
@@ -516,6 +590,29 @@ export class GameRoot extends Component {
             .to(0.08, { position: basePosition, angle: 0 })
             .call(onComplete)
             .start();
+    }
+
+    private bindCupDrag(node: Node): void {
+        if (this.dragBoundNodes.has(node.name)) {
+            return;
+        }
+        this.dragBoundNodes.add(node.name);
+        node.on(Node.EventType.TOUCH_START, (event: EventTouch) => {
+            this.cupDragStartY = event.getUILocation().y - this.localCupOffsetY;
+        }, this);
+        node.on(Node.EventType.TOUCH_MOVE, (event: EventTouch) => {
+            const nextOffset = event.getUILocation().y - this.cupDragStartY;
+            this.localCupOffsetY = Math.max(0, Math.min(135, nextOffset));
+            this.render();
+        }, this);
+        node.on(Node.EventType.TOUCH_END, () => {
+            this.localCupOffsetY = this.localCupOffsetY > 68 ? 120 : 0;
+            this.render();
+        }, this);
+        node.on(Node.EventType.TOUCH_CANCEL, () => {
+            this.localCupOffsetY = this.localCupOffsetY > 68 ? 120 : 0;
+            this.render();
+        }, this);
     }
 
     private stopNodeAnimation(node: Node): void {

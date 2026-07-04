@@ -10,7 +10,7 @@ export class CloudRoomService implements RoomService {
     }
 
     getSharePayload(): SharePayload {
-        return { roomId: '', title: '大话骰房间' };
+        return { roomId: '', title: '大话骰房间', query: '' };
     }
 
     ready(): Promise<void> {
@@ -45,4 +45,3 @@ export class CloudRoomService implements RoomService {
         return Promise.reject(new Error('CloudRoomService is reserved for WeChat Cloud Development integration.'));
     }
 }
-
