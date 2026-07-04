@@ -161,6 +161,19 @@ function button(nodeIndex) {
   });
 }
 
+function mask(nodeIndex) {
+  return component('cc.Mask', nodeIndex, {
+    _materials: [],
+    _visFlags: 0,
+    _srcBlendFactor: 2,
+    _dstBlendFactor: 4,
+    _color: color(255, 255, 255),
+    _type: 0,
+    _inverted: false,
+    _segments: 64,
+  });
+}
+
 function canvas(nodeIndex, cameraIndex) {
   return component('cc.Canvas', nodeIndex, {
     _cameraComponent: ref(cameraIndex),
@@ -377,12 +390,15 @@ function buildScene() {
     text(runtime, `SettlementFace${face}CountText`, itemX + 34, itemY - 4, 82, 42);
   }
   text(runtime, 'SettlementPlayersTitleText', 0, -80, 540, 40);
+  panel(runtime, 'SettlementPlayersViewportBg', 0, -168, 550, 158);
+  const settlementViewport = node('SettlementPlayersViewport', runtime, 0, -168, 540, 150, [mask]);
+  const settlementContent = node('SettlementPlayersContent', settlementViewport, 0, 0, 540, 260);
   const settlementPlayers = ['player-local', 'player-ai-1', 'player-ai-2', 'player-ai-3', 'player-ai-4', 'player-ai-5'];
   settlementPlayers.forEach((playerId, index) => {
-    const y = -120 - index * 42;
-    avatar(runtime, `SettlementAvatar-${playerId}`, -250, y, 26);
-    text(runtime, `SettlementPlayer${index}NameText`, -198, y - 4, 82, 36);
-    diceRow(runtime, `SettlementDiceRow-${playerId}`, 20, y, 30);
+    const y = 52 - index * 42;
+    avatar(settlementContent, `SettlementAvatar-${playerId}`, -250, y, 26);
+    text(settlementContent, `SettlementPlayer${index}NameText`, -198, y - 4, 82, 36);
+    diceRow(settlementContent, `SettlementDiceRow-${playerId}`, 20, y, 30);
   });
 
   appendPreservedGlobals(sceneIndex);

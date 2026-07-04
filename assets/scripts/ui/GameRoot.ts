@@ -44,6 +44,10 @@ export class GameRoot extends Component {
     private cupDragStartY = 0;
     private isDraggingCup = false;
     private dragBoundNodes = new Set<string>();
+    private settlementScrollY = 0;
+    private settlementDragStartY = 0;
+    private settlementScrollStartY = 0;
+    private scrollBoundNodes = new Set<string>();
 
     async start(): Promise<void> {
         this.setupCanvas();
@@ -330,11 +334,15 @@ export class GameRoot extends Component {
             this.text(parent, `SettlementFace${faceValue}CountText`, `x ${settlement.totals[faceValue]}`, itemX + 34, itemY - 4, 25, new Color(255, 240, 206, 255), 82);
         }
         this.text(parent, 'SettlementPlayersTitleText', '玩家骰面', 0, -80, 24, new Color(230, 205, 155, 255), 540);
+        this.panel(parent, 'SettlementPlayersViewportBg', 0, -168, 550, 158, new Color(34, 25, 24, 210), new Color(124, 88, 54, 255));
+        const viewport = this.createNode('SettlementPlayersViewport', parent, 0, -168, 540, 150);
+        const content = this.createNode('SettlementPlayersContent', viewport, 0, this.settlementScrollY, 540, this.settlementContentHeight(state.players.length));
+        this.bindSettlementScroll(viewport, state.players.length);
         state.players.forEach((player, index) => {
-            const y = -120 - index * 42;
-            this.drawAvatar(parent, player, -250, y, 26, `SettlementAvatar-${player.id}`);
-            this.text(parent, `SettlementPlayer${player.seatIndex}NameText`, player.name, -198, y - 4, 20, new Color(255, 233, 190, 255), 82);
-            this.drawDiceRow(parent, player.dice, 20, y, 30, `SettlementDiceRow-${player.id}`);
+            const y = this.settlementContentHeight(state.players.length) / 2 - 26 - index * 42;
+            this.drawAvatar(content, player, -250, y, 26, `SettlementAvatar-${player.id}`);
+            this.text(content, `SettlementPlayer${index}NameText`, player.name, -198, y - 4, 20, new Color(255, 233, 190, 255), 82);
+            this.drawDiceRow(content, player.dice, 20, y, 30, `SettlementDiceRow-${player.id}`);
         });
     }
 
@@ -713,6 +721,39 @@ export class GameRoot extends Component {
             this.localCupOffsetY = this.localCupOffsetY > 72 ? 128 : 0;
             this.render();
         }, this);
+    }
+
+    private bindSettlementScroll(node: Node, playerCount: number): void {
+        if (!this.scrollBoundNodes.has(node.name)) {
+            this.scrollBoundNodes.add(node.name);
+            node.on(Node.EventType.TOUCH_START, (event: EventTouch) => {
+                this.settlementDragStartY = event.getUILocation().y;
+                this.settlementScrollStartY = this.settlementScrollY;
+            }, this);
+            node.on(Node.EventType.TOUCH_MOVE, (event: EventTouch) => {
+                const deltaY = event.getUILocation().y - this.settlementDragStartY;
+                this.settlementScrollY = this.clampSettlementScroll(this.settlementScrollStartY + deltaY, this.state?.players.length || playerCount);
+                this.render();
+            }, this);
+            node.on(Node.EventType.TOUCH_END, () => {
+                this.settlementScrollY = this.clampSettlementScroll(this.settlementScrollY, this.state?.players.length || playerCount);
+                this.render();
+            }, this);
+            node.on(Node.EventType.TOUCH_CANCEL, () => {
+                this.settlementScrollY = this.clampSettlementScroll(this.settlementScrollY, this.state?.players.length || playerCount);
+                this.render();
+            }, this);
+        }
+        this.settlementScrollY = this.clampSettlementScroll(this.settlementScrollY, playerCount);
+    }
+
+    private settlementContentHeight(playerCount: number): number {
+        return Math.max(150, playerCount * 42 + 24);
+    }
+
+    private clampSettlementScroll(value: number, playerCount: number): number {
+        const maxScroll = Math.max(0, this.settlementContentHeight(playerCount) - 150);
+        return Math.max(0, Math.min(maxScroll, value));
     }
 
     private stopNodeAnimation(node: Node): void {
