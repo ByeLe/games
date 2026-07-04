@@ -249,21 +249,20 @@ function cup(parent, name, x, y, scale) {
   return panel(parent, name, x, y, 150 * scale, 150 * scale);
 }
 
-function avatar(parent, playerId, x, y, valueSize) {
-  return panel(parent, `Avatar-${playerId}`, x, y, valueSize, valueSize);
+function avatar(parent, name, x, y, valueSize) {
+  return panel(parent, name, x, y, valueSize, valueSize);
 }
 
-function playerSeat(parent, playerId, isLocal, x, y) {
-  const seatWidth = isLocal ? 630 : 190;
-  const seatHeight = isLocal ? 178 : 132;
-  const seat = node(`PlayerSeatPrefab-${playerId}`, parent, x, y, seatWidth, seatHeight);
-  panel(seat, 'SeatPanel', 0, 0, seatWidth, seatHeight);
-  avatar(seat, playerId, -seatWidth / 2 + (isLocal ? 58 : 34), isLocal ? 38 : 25, isLocal ? 58 : 38);
-  text(seat, 'PlayerNameText', isLocal ? 42 : 18, isLocal ? 55 : 42, isLocal ? 410 : 118, 48);
-  text(seat, 'PlayerStatusText', isLocal ? 42 : 18, isLocal ? 22 : 13, isLocal ? 410 : 118, 40);
-  cup(seat, `SeatRollingCup-${playerId}`, isLocal ? 42 : 0, isLocal ? -43 : -30, isLocal ? 0.55 : 0.48);
-  diceRow(seat, `SeatDiceRow-${playerId}`, isLocal ? 42 : 0, isLocal ? -43 : -30, isLocal ? 50 : 28);
-  cup(seat, `SeatCup-${playerId}`, 0, -32, 0.48);
+function playerSeatTemplate(parent) {
+  const seat = node('PlayerSeatTemplate', parent, 0, -330, 630, 178);
+  objects[seat]._active = false;
+  panel(seat, 'SeatPanel', 0, 0, 630, 178);
+  avatar(seat, 'Avatar', -257, 38, 58);
+  text(seat, 'PlayerNameText', 42, 55, 410, 48);
+  text(seat, 'PlayerStatusText', 42, 22, 410, 40);
+  cup(seat, 'SeatRollingCup', 42, -43, 0.55);
+  diceRow(seat, 'SeatDiceRow', 42, -43, 50);
+  cup(seat, 'SeatCup', 0, -32, 0.48);
 }
 
 function appendPreservedGlobals(sceneIndex) {
@@ -339,15 +338,7 @@ function buildScene() {
   text(runtime, 'RuleText', 0, 112, 420, 42);
   text(runtime, 'BidHistoryText', 0, -105, 560, 38);
 
-  const seats = [
-    ['player-local', true, 0, -330],
-    ['player-ai-1', false, -240, 290],
-    ['player-ai-2', false, 0, 385],
-    ['player-ai-3', false, 240, 290],
-    ['player-ai-4', false, -240, 80],
-    ['player-ai-5', false, 240, 80],
-  ];
-  seats.forEach(([playerId, isLocal, x, y]) => playerSeat(runtime, playerId, isLocal, x, y));
+  playerSeatTemplate(runtime);
 
   buttonNode(runtime, 'ReadyButton', -115, -570, 190, 62);
   buttonNode(runtime, 'MockJoinButton', 115, -570, 190, 62);
@@ -386,9 +377,10 @@ function buildScene() {
     text(runtime, `SettlementFace${face}CountText`, itemX + 34, itemY - 4, 82, 42);
   }
   text(runtime, 'SettlementPlayersTitleText', 0, -80, 540, 40);
-  seats.slice(0, 4).forEach(([playerId], index) => {
+  const settlementPlayers = ['player-local', 'player-ai-1', 'player-ai-2', 'player-ai-3', 'player-ai-4', 'player-ai-5'];
+  settlementPlayers.forEach((playerId, index) => {
     const y = -120 - index * 42;
-    avatar(runtime, playerId, -250, y, 26);
+    avatar(runtime, `SettlementAvatar-${playerId}`, -250, y, 26);
     text(runtime, `SettlementPlayer${index}NameText`, -198, y - 4, 82, 36);
     diceRow(runtime, `SettlementDiceRow-${playerId}`, 20, y, 30);
   });

@@ -8,6 +8,7 @@ import {
     Label,
     Node,
     Tween,
+    instantiate,
     tween,
     UITransform,
     EventTouch,
@@ -36,6 +37,7 @@ export class GameRoot extends Component {
     private nodeCache = new Map<string, Node>();
     private buttonHandlers = new Map<string, () => void>();
     private activeNodeKeys = new Set<string>();
+    private playerSeatNodes = new Map<string, Node>();
     private rollingAnimationIds = new Set<string>();
     private isRollingLocal = false;
     private localCupOffsetY = 0;
@@ -199,6 +201,13 @@ export class GameRoot extends Component {
     }
 
     private drawPlayers(parent: Node, state: RoomState): void {
+        const activePlayerIds = new Set(state.players.map((player) => player.id));
+        this.playerSeatNodes.forEach((seatNode, playerId) => {
+            if (!activePlayerIds.has(playerId)) {
+                this.stopNodeAnimation(seatNode);
+                seatNode.active = false;
+            }
+        });
         const positions = [
             { x: 0, y: -330 },
             { x: -240, y: 290 },
@@ -214,24 +223,24 @@ export class GameRoot extends Component {
     }
 
     private drawPlayerSeat(parent: Node, state: RoomState, player: PlayerState, x: number, y: number): void {
-        const seatRoot = this.createNode(`PlayerSeatPrefab-${player.id}`, parent, x, y, player.isLocal ? 630 : 190, player.isLocal ? 178 : 132);
+        const seatRoot = this.getPlayerSeat(parent, player, x, y);
         const isTurn = state.currentTurnPlayerId === player.id;
         const panelColor = isTurn ? new Color(119, 52, 30, 245) : new Color(42, 24, 24, 220);
         const seatWidth = player.isLocal ? 630 : 190;
         const seatHeight = player.isLocal ? 178 : 132;
         this.panel(seatRoot, 'SeatPanel', 0, 0, seatWidth, seatHeight, panelColor, isTurn ? new Color(255, 214, 98, 255) : new Color(151, 111, 71, 255));
-        this.drawAvatar(seatRoot, player, -seatWidth / 2 + (player.isLocal ? 58 : 34), player.isLocal ? 38 : 25, player.isLocal ? 58 : 38);
+        this.drawAvatar(seatRoot, player, -seatWidth / 2 + (player.isLocal ? 58 : 34), player.isLocal ? 38 : 25, player.isLocal ? 58 : 38, 'Avatar');
         this.text(seatRoot, 'PlayerNameText', `${player.name}${player.isHost ? ' 房主' : ''}`, player.isLocal ? 42 : 18, player.isLocal ? 55 : 42, player.isLocal ? 28 : 21, new Color(255, 233, 190, 255), player.isLocal ? 410 : 118);
         this.text(seatRoot, 'PlayerStatusText', this.playerStatus(state, player), player.isLocal ? 42 : 18, player.isLocal ? 22 : 13, player.isLocal ? 22 : 18, new Color(230, 205, 155, 255), player.isLocal ? 410 : 118);
 
         if (player.isLocal || state.phase === 'settlement') {
             if (state.phase === 'rolling' && !player.hasRolled) {
-                this.drawCup(seatRoot, player.isLocal ? 42 : 0, player.isLocal ? -43 : -30, player.isLocal ? 0.55 : 0.48, `SeatRollingCup-${player.id}`);
+                this.drawCup(seatRoot, player.isLocal ? 42 : 0, player.isLocal ? -43 : -30, player.isLocal ? 0.55 : 0.48, 'SeatRollingCup');
             } else {
-                this.drawDiceRow(seatRoot, player.dice, player.isLocal ? 42 : 0, player.isLocal ? -43 : -30, player.isLocal ? 50 : 28, `SeatDiceRow-${player.id}`);
+                this.drawDiceRow(seatRoot, player.dice, player.isLocal ? 42 : 0, player.isLocal ? -43 : -30, player.isLocal ? 50 : 28, 'SeatDiceRow');
             }
         } else {
-            this.drawCup(seatRoot, 0, -32, 0.48, `SeatCup-${player.id}`);
+            this.drawCup(seatRoot, 0, -32, 0.48, 'SeatCup');
         }
     }
 
@@ -309,7 +318,7 @@ export class GameRoot extends Component {
         this.text(parent, 'SettlementPlayersTitleText', '玩家骰面', 0, -80, 24, new Color(230, 205, 155, 255), 540);
         state.players.forEach((player, index) => {
             const y = -120 - index * 42;
-            this.drawAvatar(parent, player, -250, y, 26);
+            this.drawAvatar(parent, player, -250, y, 26, `SettlementAvatar-${player.id}`);
             this.text(parent, `SettlementPlayer${player.seatIndex}NameText`, player.name, -198, y - 4, 20, new Color(255, 233, 190, 255), 82);
             this.drawDiceRow(parent, player.dice, 20, y, 30, `SettlementDiceRow-${player.id}`);
         });
@@ -425,8 +434,8 @@ export class GameRoot extends Component {
         return node;
     }
 
-    private drawAvatar(parent: Node, player: PlayerState, x: number, y: number, size: number): void {
-        const node = this.createNode(`Avatar-${player.id}`, parent, x, y, size, size);
+    private drawAvatar(parent: Node, player: PlayerState, x: number, y: number, size: number, name = `Avatar-${player.id}`): void {
+        const node = this.createNode(name, parent, x, y, size, size);
         const graphics = this.graphics(node);
         graphics.clear();
         const avatarColors = [
@@ -529,6 +538,31 @@ export class GameRoot extends Component {
         }
         transform.setContentSize(width, height);
         return node;
+    }
+
+    private getPlayerSeat(parent: Node, player: PlayerState, x: number, y: number): Node {
+        let seatNode = this.playerSeatNodes.get(player.id);
+        if (!seatNode) {
+            const template = this.requireChild(parent, 'PlayerSeatTemplate');
+            seatNode = instantiate(template);
+            seatNode.name = `PlayerSeat-${player.id}`;
+            seatNode.parent = parent;
+            seatNode.layer = parent.layer;
+            this.playerSeatNodes.set(player.id, seatNode);
+        }
+        const seatWidth = player.isLocal ? 630 : 190;
+        const seatHeight = player.isLocal ? 178 : 132;
+        const key = this.nodeKey(parent, seatNode.name, 0, 0, 0, 0);
+        this.nodeCache.set(key, seatNode);
+        this.activeNodeKeys.add(key);
+        seatNode.active = true;
+        seatNode.setPosition(new Vec3(x, y, 0));
+        const transform = seatNode.getComponent(UITransform);
+        if (!transform) {
+            throw new Error(`${seatNode.name} is missing UITransform.`);
+        }
+        transform.setContentSize(seatWidth, seatHeight);
+        return seatNode;
     }
 
     private cacheSceneNodes(parent: Node): void {
@@ -683,7 +717,7 @@ export class GameRoot extends Component {
     }
 
     private nodeKey(parent: Node, name: string, _x: number, _y: number, _width: number, _height: number): string {
-        return `${parent.uuid}/${this.safeNodeName(name)}`;
+        return `${parent.name}/${this.safeNodeName(name)}`;
     }
 
     private safeNodeName(name: string): string {
