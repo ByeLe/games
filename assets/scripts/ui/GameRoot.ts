@@ -7,6 +7,8 @@ import {
     Graphics,
     Label,
     Node,
+    Tween,
+    tween,
     UITransform,
     EventTouch,
     Vec3,
@@ -31,6 +33,8 @@ export class GameRoot extends Component {
     private nodeCache = new Map<string, Node>();
     private buttonHandlers = new Map<string, () => void>();
     private activeNodeKeys = new Set<string>();
+    private rollingAnimationIds = new Set<string>();
+    private isRollingLocal = false;
 
     async start(): Promise<void> {
         this.setupCanvas();
@@ -98,11 +102,13 @@ export class GameRoot extends Component {
             this.drawSettlement(this.content, this.state);
         }
         this.hideUnusedNodes();
+        this.syncRollingAnimations(this.state);
     }
 
     private drawBackground(parent: Node): void {
         const bg = this.createNode('Background', parent, 0, 0, DESIGN_WIDTH, DESIGN_HEIGHT);
-        const graphics = bg.addComponent(Graphics);
+        const graphics = this.graphics(bg);
+        graphics.clear();
         graphics.fillColor = new Color(56, 13, 18, 255);
         graphics.rect(-DESIGN_WIDTH / 2, -DESIGN_HEIGHT / 2, DESIGN_WIDTH, DESIGN_HEIGHT);
         graphics.fill();
@@ -127,7 +133,8 @@ export class GameRoot extends Component {
 
     private drawTable(parent: Node, state: RoomState): void {
         const table = this.createNode('Table', parent, 0, 120, 590, 480);
-        const graphics = table.addComponent(Graphics);
+        const graphics = this.graphics(table);
+        graphics.clear();
         graphics.fillColor = new Color(68, 34, 20, 255);
         graphics.ellipse(0, 0, 292, 226);
         graphics.fill();
@@ -176,9 +183,13 @@ export class GameRoot extends Component {
         this.text(parent, this.playerStatus(state, player), x + (player.isLocal ? 42 : 18), y + (player.isLocal ? 22 : 13), player.isLocal ? 22 : 18, new Color(230, 205, 155, 255), player.isLocal ? 410 : 118);
 
         if (player.isLocal || state.phase === 'settlement') {
-            this.drawDiceRow(parent, player.dice, x + (player.isLocal ? 42 : 0), y - (player.isLocal ? 43 : 30), player.isLocal ? 50 : 28);
+            if (state.phase === 'rolling' && !player.hasRolled) {
+                this.drawCup(parent, x + (player.isLocal ? 42 : 0), y - (player.isLocal ? 43 : 30), player.isLocal ? 0.74 : 0.48, `RollingCup-${player.id}`);
+            } else {
+                this.drawDiceRow(parent, player.dice, x + (player.isLocal ? 42 : 0), y - (player.isLocal ? 43 : 30), player.isLocal ? 50 : 28);
+            }
         } else {
-            this.drawCup(parent, x, y - 32, 0.48);
+            this.drawCup(parent, x, y - 32, 0.48, `Cup-${player.id}`);
         }
     }
 
@@ -193,7 +204,7 @@ export class GameRoot extends Component {
             return;
         }
         if (state.phase === 'rolling') {
-            this.button(parent, 'RollButton', local.hasRolled ? '已摇骰' : '摇骰', 0, -570, 230, 62, () => void this.service.roll(local.id), local.hasRolled);
+            this.button(parent, 'RollButton', this.isRollingLocal ? '摇骰中' : local.hasRolled ? '已摇骰' : '摇骰', 0, -570, 230, 62, () => this.rollLocalWithAnimation(local.id), local.hasRolled || this.isRollingLocal);
             return;
         }
         if (state.phase === 'bidding') {
@@ -267,7 +278,7 @@ export class GameRoot extends Component {
 
     private drawDie(parent: Node, x: number, y: number, size: number, face: DiceFace, muted: boolean): void {
         const node = this.createNode(`Die-${face}`, parent, x, y, size, size);
-        const graphics = node.addComponent(Graphics);
+        const graphics = this.graphics(node);
         graphics.clear();
         graphics.fillColor = muted ? new Color(160, 145, 124, 255) : new Color(255, 248, 228, 255);
         graphics.roundRect(-size / 2, -size / 2, size, size, size * 0.16);
@@ -297,9 +308,9 @@ export class GameRoot extends Component {
         return map[face];
     }
 
-    private drawCup(parent: Node, x: number, y: number, scale: number): void {
-        const node = this.createNode('Cup', parent, x, y, 120 * scale, 120 * scale);
-        const graphics = node.addComponent(Graphics);
+    private drawCup(parent: Node, x: number, y: number, scale: number, name = 'Cup'): void {
+        const node = this.createNode(name, parent, x, y, 120 * scale, 120 * scale);
+        const graphics = this.graphics(node);
         graphics.clear();
         graphics.fillColor = new Color(101, 18, 25, 255);
         graphics.roundRect(-48 * scale, -45 * scale, 96 * scale, 90 * scale, 16 * scale);
@@ -315,7 +326,7 @@ export class GameRoot extends Component {
 
     private drawAvatar(parent: Node, player: PlayerState, x: number, y: number, size: number): void {
         const node = this.createNode(`Avatar-${player.id}`, parent, x, y, size, size);
-        const graphics = node.addComponent(Graphics);
+        const graphics = this.graphics(node);
         graphics.clear();
         const avatarColors = [
             new Color(242, 178, 83, 255),
@@ -363,10 +374,7 @@ export class GameRoot extends Component {
 
     private panel(parent: Node, name: string, x: number, y: number, width: number, height: number, fill: Color, stroke: Color): Node {
         const node = this.createNode(name, parent, x, y, width, height);
-        let graphics = node.getComponent(Graphics);
-        if (!graphics) {
-            graphics = node.addComponent(Graphics);
-        }
+        const graphics = this.graphics(node);
         graphics.clear();
         graphics.fillColor = fill;
         graphics.roundRect(-width / 2, -height / 2, width, height, 16);
@@ -423,9 +431,106 @@ export class GameRoot extends Component {
     private hideUnusedNodes(): void {
         this.nodeCache.forEach((node, key) => {
             if (node !== this.content && !this.activeNodeKeys.has(key)) {
+                this.stopNodeAnimation(node);
                 node.active = false;
             }
         });
+    }
+
+    private graphics(node: Node): Graphics {
+        let graphics = node.getComponent(Graphics);
+        if (!graphics) {
+            graphics = node.addComponent(Graphics);
+        }
+        return graphics;
+    }
+
+    private syncRollingAnimations(state: RoomState): void {
+        const activeRollingIds = new Set<string>();
+        if (state.phase === 'rolling') {
+            state.players.forEach((player) => {
+                if (!player.hasRolled) {
+                    activeRollingIds.add(player.id);
+                    const node = this.findNodeBySafeName(`RollingCup-${player.id}`);
+                    if (node && !this.rollingAnimationIds.has(player.id)) {
+                        this.startIdleShake(node);
+                        this.rollingAnimationIds.add(player.id);
+                    }
+                }
+            });
+        }
+        this.rollingAnimationIds.forEach((playerId) => {
+            if (!activeRollingIds.has(playerId)) {
+                const node = this.findNodeBySafeName(`RollingCup-${playerId}`);
+                if (node) {
+                    this.stopNodeAnimation(node);
+                }
+                this.rollingAnimationIds.delete(playerId);
+            }
+        });
+    }
+
+    private rollLocalWithAnimation(playerId: string): void {
+        if (this.isRollingLocal) {
+            return;
+        }
+        const node = this.findNodeBySafeName(`RollingCup-${playerId}`);
+        if (!node) {
+            void this.service.roll(playerId);
+            return;
+        }
+        this.isRollingLocal = true;
+        this.render();
+        this.playStrongShake(node, () => {
+            this.isRollingLocal = false;
+            void this.service.roll(playerId);
+        });
+    }
+
+    private startIdleShake(node: Node): void {
+        this.stopNodeAnimation(node);
+        const basePosition = node.position.clone();
+        node.setPosition(basePosition);
+        node.angle = 0;
+        tween(node)
+            .repeatForever(
+                tween<Node>()
+                    .to(0.12, { position: new Vec3(basePosition.x - 5, basePosition.y + 2, 0), angle: -5 })
+                    .to(0.12, { position: new Vec3(basePosition.x + 5, basePosition.y - 2, 0), angle: 5 })
+                    .to(0.12, { position: basePosition, angle: 0 }),
+            )
+            .start();
+    }
+
+    private playStrongShake(node: Node, onComplete: () => void): void {
+        this.stopNodeAnimation(node);
+        const basePosition = node.position.clone();
+        node.angle = 0;
+        tween(node)
+            .to(0.07, { position: new Vec3(basePosition.x - 18, basePosition.y + 8, 0), angle: -14 })
+            .to(0.07, { position: new Vec3(basePosition.x + 18, basePosition.y - 6, 0), angle: 14 })
+            .to(0.06, { position: new Vec3(basePosition.x - 14, basePosition.y - 8, 0), angle: -12 })
+            .to(0.06, { position: new Vec3(basePosition.x + 14, basePosition.y + 6, 0), angle: 12 })
+            .to(0.06, { position: new Vec3(basePosition.x - 10, basePosition.y + 4, 0), angle: -8 })
+            .to(0.06, { position: new Vec3(basePosition.x + 10, basePosition.y - 4, 0), angle: 8 })
+            .to(0.08, { position: basePosition, angle: 0 })
+            .call(onComplete)
+            .start();
+    }
+
+    private stopNodeAnimation(node: Node): void {
+        Tween.stopAllByTarget(node);
+        node.angle = 0;
+    }
+
+    private findNodeBySafeName(name: string): Node | null {
+        const safeName = this.safeNodeName(name);
+        for (const node of this.nodeCache.values()) {
+            if (node.name === safeName && node.active) {
+                return node;
+            }
+        }
+        return null;
     }
 
     private nodeKey(parent: Node, name: string, x: number, y: number, width: number, height: number): string {
