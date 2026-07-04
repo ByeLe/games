@@ -28,6 +28,7 @@ export class GameRoot extends Component {
     private content: Node | null = null;
     private selectedQuantity = 1;
     private selectedFace: DiceFace = 2;
+    private nodeSerial = 0;
 
     async start(): Promise<void> {
         this.setupCanvas();
@@ -84,6 +85,7 @@ export class GameRoot extends Component {
         if (!this.content || !this.state) {
             return;
         }
+        this.nodeSerial = 0;
         this.content.removeAllChildren();
         this.drawBackground(this.content);
         this.drawTopBar(this.content, this.state);
@@ -147,7 +149,7 @@ export class GameRoot extends Component {
 
     private drawPlayers(parent: Node, state: RoomState): void {
         const positions = [
-            { x: 0, y: -390 },
+            { x: 0, y: -330 },
             { x: -240, y: 290 },
             { x: 0, y: 385 },
             { x: 240, y: 290 },
@@ -163,12 +165,15 @@ export class GameRoot extends Component {
     private drawPlayerSeat(parent: Node, state: RoomState, player: PlayerState, x: number, y: number): void {
         const isTurn = state.currentTurnPlayerId === player.id;
         const panelColor = isTurn ? new Color(119, 52, 30, 245) : new Color(42, 24, 24, 220);
-        this.panel(parent, `Seat-${player.id}`, x, y, player.isLocal ? 630 : 190, player.isLocal ? 220 : 128, panelColor, isTurn ? new Color(255, 214, 98, 255) : new Color(151, 111, 71, 255));
-        this.text(parent, `${player.name}${player.isHost ? ' 房主' : ''}`, x, y + (player.isLocal ? 78 : 40), player.isLocal ? 28 : 21, new Color(255, 233, 190, 255), player.isLocal ? 560 : 168);
-        this.text(parent, this.playerStatus(state, player), x, y + (player.isLocal ? 42 : 12), player.isLocal ? 22 : 18, new Color(230, 205, 155, 255), player.isLocal ? 560 : 168);
+        const seatWidth = player.isLocal ? 630 : 190;
+        const seatHeight = player.isLocal ? 178 : 132;
+        this.panel(parent, `Seat-${player.id}`, x, y, seatWidth, seatHeight, panelColor, isTurn ? new Color(255, 214, 98, 255) : new Color(151, 111, 71, 255));
+        this.drawAvatar(parent, player, x - seatWidth / 2 + (player.isLocal ? 58 : 34), y + (player.isLocal ? 38 : 25), player.isLocal ? 58 : 38);
+        this.text(parent, `${player.name}${player.isHost ? ' 房主' : ''}`, x + (player.isLocal ? 42 : 18), y + (player.isLocal ? 55 : 42), player.isLocal ? 28 : 21, new Color(255, 233, 190, 255), player.isLocal ? 410 : 118);
+        this.text(parent, this.playerStatus(state, player), x + (player.isLocal ? 42 : 18), y + (player.isLocal ? 22 : 13), player.isLocal ? 22 : 18, new Color(230, 205, 155, 255), player.isLocal ? 410 : 118);
 
         if (player.isLocal || state.phase === 'settlement') {
-            this.drawDiceRow(parent, player.dice, x, y - (player.isLocal ? 42 : 28), player.isLocal ? 54 : 28);
+            this.drawDiceRow(parent, player.dice, x + (player.isLocal ? 42 : 0), y - (player.isLocal ? 43 : 30), player.isLocal ? 50 : 28);
         } else {
             this.drawCup(parent, x, y - 32, 0.48);
         }
@@ -180,50 +185,60 @@ export class GameRoot extends Component {
             return;
         }
         if (state.phase === 'lobby') {
-            this.button(parent, local.isReady ? '已准备' : '准备', -115, -560, 190, 68, () => void this.service.ready(local.id), local.isReady);
-            this.button(parent, '模拟加入', 115, -560, 190, 68, () => this.toast('本地默认已加入 4 人房'));
+            this.button(parent, local.isReady ? '已准备' : '准备', -115, -570, 190, 62, () => void this.service.ready(local.id), local.isReady);
+            this.button(parent, '模拟加入', 115, -570, 190, 62, () => this.toast('本地默认已加入 4 人房'));
             return;
         }
         if (state.phase === 'rolling') {
-            this.button(parent, local.hasRolled ? '已摇骰' : '摇骰', 0, -560, 230, 72, () => void this.service.roll(local.id), local.hasRolled);
+            this.button(parent, local.hasRolled ? '已摇骰' : '摇骰', 0, -570, 230, 62, () => void this.service.roll(local.id), local.hasRolled);
             return;
         }
         if (state.phase === 'bidding') {
             const isMyTurn = state.currentTurnPlayerId === local.id;
             this.drawBidPicker(parent, isMyTurn);
-            this.button(parent, '叫牌', -120, -560, 190, 68, () => void this.service.bid(local.id, this.selectedQuantity, this.selectedFace), !isMyTurn);
-            this.button(parent, '开', 120, -560, 190, 68, () => void this.service.open(local.id), !isMyTurn || !state.lastBid);
+            this.button(parent, '叫牌', -120, -570, 190, 62, () => void this.service.bid(local.id, this.selectedQuantity, this.selectedFace), !isMyTurn);
+            this.button(parent, '开', 120, -570, 190, 62, () => void this.service.open(local.id), !isMyTurn || !state.lastBid);
             return;
         }
         if (state.phase === 'settlement') {
-            this.button(parent, '再来一局', 0, -560, 240, 72, () => void this.service.restart());
+            this.button(parent, '再来一局', 0, -570, 240, 62, () => void this.service.restart());
         }
     }
 
     private drawBidPicker(parent: Node, enabled: boolean): void {
-        this.panel(parent, 'BidPicker', 0, -505, 510, 82, new Color(28, 24, 24, 230), new Color(154, 112, 66, 255));
-        this.button(parent, '-', -205, -505, 54, 54, () => this.changeQuantity(-1), !enabled);
-        this.text(parent, `${this.selectedQuantity} 个`, -130, -513, 28, new Color(255, 233, 190, 255), 90);
-        this.button(parent, '+', -55, -505, 54, 54, () => this.changeQuantity(1), !enabled);
-        this.button(parent, '-', 55, -505, 54, 54, () => this.changeFace(-1), !enabled);
-        this.text(parent, `${this.selectedFace} 点`, 130, -513, 28, new Color(255, 233, 190, 255), 90);
-        this.button(parent, '+', 205, -505, 54, 54, () => this.changeFace(1), !enabled);
+        this.panel(parent, 'BidPicker', 0, -470, 540, 76, new Color(28, 24, 24, 230), new Color(154, 112, 66, 255));
+        this.button(parent, '-', -220, -470, 52, 52, () => this.changeQuantity(-1), !enabled);
+        this.text(parent, `${this.selectedQuantity} 个`, -142, -477, 27, new Color(255, 233, 190, 255), 94);
+        this.button(parent, '+', -62, -470, 52, 52, () => this.changeQuantity(1), !enabled);
+        this.button(parent, '-', 62, -470, 52, 52, () => this.changeFace(-1), !enabled);
+        this.drawDie(parent, 136, -470, 40, this.selectedFace, !enabled);
+        this.button(parent, '+', 220, -470, 52, 52, () => this.changeFace(1), !enabled);
     }
 
     private drawSettlement(parent: Node, state: RoomState): void {
         const settlement = state.settlement!;
-        this.panel(parent, 'Settlement', 0, 25, 610, 520, new Color(22, 18, 18, 248), new Color(238, 190, 98, 255));
-        this.text(parent, '开牌结算', 0, 235, 40, new Color(255, 228, 162, 255), 560);
-        this.text(parent, `上一手：${this.playerName(state, settlement.lastBid.playerId)} 叫 ${settlement.lastBid.quantity} 个 ${settlement.lastBid.face}`, 0, 180, 27, new Color(245, 219, 174, 255), 560);
-        this.text(parent, `实际计数：${settlement.effectiveCount}  /  ${settlement.bidSucceeded ? '叫牌成立' : '叫牌失败'}`, 0, 140, 27, new Color(245, 219, 174, 255), 560);
-        this.text(parent, `输家：${this.playerName(state, settlement.loserId)}`, 0, 96, 32, new Color(255, 116, 96, 255), 560);
+        this.panel(parent, 'Settlement', 0, 35, 620, 560, new Color(22, 18, 18, 248), new Color(238, 190, 98, 255));
+        this.text(parent, '开牌结算', 0, 280, 40, new Color(255, 228, 162, 255), 560);
+        this.text(parent, `上一手：${this.playerName(state, settlement.lastBid.playerId)} 叫 ${settlement.lastBid.quantity} 个`, -36, 226, 27, new Color(245, 219, 174, 255), 450);
+        this.drawDie(parent, 225, 226, 40, settlement.lastBid.face, false);
+        this.text(parent, `实际计数：${settlement.effectiveCount}  /  ${settlement.bidSucceeded ? '叫牌成立' : '叫牌失败'}`, 0, 182, 27, new Color(245, 219, 174, 255), 560);
+        this.text(parent, `输家：${this.playerName(state, settlement.loserId)}`, 0, 140, 32, new Color(255, 116, 96, 255), 560);
         for (let face = 1; face <= 6; face += 1) {
             const col = (face - 1) % 3;
             const row = Math.floor((face - 1) / 3);
-            this.text(parent, `${face} 点：${settlement.totals[face as DiceFace]} 个`, -170 + col * 170, 34 - row * 48, 25, new Color(255, 240, 206, 255), 150);
+            const faceValue = face as DiceFace;
+            const itemX = -205 + col * 205;
+            const itemY = 72 - row * 70;
+            this.drawDie(parent, itemX - 34, itemY, 38, faceValue, false);
+            this.text(parent, `x ${settlement.totals[faceValue]}`, itemX + 34, itemY - 4, 25, new Color(255, 240, 206, 255), 82);
         }
-        const allDice = state.players.map((player) => `${player.name}: ${player.dice.join(',')}`).join('    ');
-        this.text(parent, allDice, 0, -108, 21, new Color(218, 201, 168, 255), 540);
+        this.text(parent, '玩家骰面', 0, -80, 24, new Color(230, 205, 155, 255), 540);
+        state.players.forEach((player, index) => {
+            const y = -120 - index * 42;
+            this.drawAvatar(parent, player, -250, y, 26);
+            this.text(parent, player.name, -198, y - 4, 20, new Color(255, 233, 190, 255), 82);
+            this.drawDiceRow(parent, player.dice, 20, y, 30);
+        });
     }
 
     private changeQuantity(delta: number): void {
@@ -293,8 +308,33 @@ export class GameRoot extends Component {
         graphics.stroke();
     }
 
+    private drawAvatar(parent: Node, player: PlayerState, x: number, y: number, size: number): void {
+        const node = this.createNode(`Avatar-${player.id}`, parent, x, y, size, size);
+        const graphics = node.addComponent(Graphics);
+        const avatarColors = [
+            new Color(242, 178, 83, 255),
+            new Color(91, 165, 195, 255),
+            new Color(139, 197, 108, 255),
+            new Color(191, 112, 202, 255),
+            new Color(229, 111, 97, 255),
+            new Color(114, 132, 219, 255),
+        ];
+        graphics.fillColor = avatarColors[player.seatIndex % avatarColors.length];
+        graphics.circle(0, 0, size / 2);
+        graphics.fill();
+        graphics.strokeColor = player.isLocal ? new Color(255, 235, 165, 255) : new Color(92, 52, 43, 255);
+        graphics.lineWidth = Math.max(2, size * 0.08);
+        graphics.circle(0, 0, size / 2);
+        graphics.stroke();
+        graphics.fillColor = new Color(76, 38, 36, 255);
+        graphics.circle(0, size * 0.12, size * 0.15);
+        graphics.fill();
+        graphics.roundRect(-size * 0.24, -size * 0.26, size * 0.48, size * 0.28, size * 0.12);
+        graphics.fill();
+    }
+
     private button(parent: Node, label: string, x: number, y: number, width: number, height: number, onClick: () => void, disabled = false): Node {
-        const node = this.panel(parent, `Button-${label}`, x, y, width, height, disabled ? new Color(82, 75, 70, 230) : new Color(156, 35, 31, 245), new Color(234, 184, 94, 255));
+        const node = this.panel(parent, `Button-${this.nodeSerial}`, x, y, width, height, disabled ? new Color(82, 75, 70, 230) : new Color(156, 35, 31, 245), new Color(234, 184, 94, 255));
         const button = node.addComponent(Button);
         button.interactable = !disabled;
         node.on(Node.EventType.TOUCH_END, (_event: EventTouch) => {
@@ -320,7 +360,7 @@ export class GameRoot extends Component {
     }
 
     private text(parent: Node, value: string, x: number, y: number, fontSize: number, color: Color, width: number): Node {
-        const node = this.createNode(`Text-${value.slice(0, 8)}`, parent, x, y, width, fontSize + 16);
+        const node = this.createNode('Text', parent, x, y, width, fontSize + 16);
         const label = node.addComponent(Label);
         label.string = value;
         label.fontSize = fontSize;
@@ -333,13 +373,19 @@ export class GameRoot extends Component {
     }
 
     private createNode(name: string, parent: Node, x: number, y: number, width: number, height: number): Node {
-        const node = new Node(name);
+        const node = new Node(this.nodeName(name));
         node.parent = parent;
         node.setPosition(new Vec3(x, y, 0));
         node.layer = parent.layer;
         const transform = node.addComponent(UITransform);
         transform.setContentSize(width, height);
         return node;
+    }
+
+    private nodeName(name: string): string {
+        const safeName = name.replace(/[^A-Za-z0-9_-]/g, '');
+        this.nodeSerial += 1;
+        return `${safeName || 'Node'}-${this.nodeSerial}`;
     }
 
     private playerStatus(state: RoomState, player: PlayerState): string {
