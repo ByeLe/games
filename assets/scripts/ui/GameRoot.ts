@@ -235,12 +235,12 @@ export class GameRoot extends Component {
 
         if (player.isLocal || state.phase === 'settlement') {
             if (state.phase === 'rolling' && !player.hasRolled) {
-                this.drawCup(seatRoot, player.isLocal ? 42 : 0, player.isLocal ? -43 : -30, player.isLocal ? 0.55 : 0.48, 'SeatRollingCup');
+                this.drawCup(seatRoot, player.isLocal ? 42 : 0, player.isLocal ? -43 : -34, player.isLocal ? 0.55 : 0.36, 'SeatRollingCup');
             } else {
                 this.drawDiceRow(seatRoot, player.dice, player.isLocal ? 42 : 0, player.isLocal ? -43 : -30, player.isLocal ? 50 : 28, 'SeatDiceRow');
             }
         } else {
-            this.drawCup(seatRoot, 0, -32, 0.48, 'SeatCup');
+            this.drawCup(seatRoot, 0, -34, 0.36, 'SeatCup');
         }
     }
 
