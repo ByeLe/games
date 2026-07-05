@@ -361,9 +361,14 @@ export class GameRoot extends Component {
         const seatWidth = player.isLocal ? 630 : 160;
         const seatHeight = player.isLocal ? 178 : 118;
         this.panel(seatRoot, 'SeatPanel', 0, 0, seatWidth, seatHeight, panelColor, panelStroke);
-        this.drawAvatar(seatRoot, player, -seatWidth / 2 + (player.isLocal ? 58 : 34), player.isLocal ? 38 : 25, player.isLocal ? 58 : 38, 'Avatar');
-        this.text(seatRoot, 'PlayerNameText', `${player.name}${player.isHost ? ' 房主' : ''}`, player.isLocal ? 42 : 18, player.isLocal ? 55 : 42, player.isLocal ? 28 : 21, new Color(255, 233, 190, 255), player.isLocal ? 410 : 118);
-        this.text(seatRoot, 'PlayerStatusText', this.playerStatus(state, player), player.isLocal ? 42 : 18, player.isLocal ? 22 : 13, player.isLocal ? 22 : 18, new Color(230, 205, 155, 255), player.isLocal ? 410 : 118);
+        const avatarSize = player.isLocal ? 58 : 38;
+        const avatarX = -seatWidth / 2 + (player.isLocal ? 58 : 34);
+        const avatarY = player.isLocal ? 38 : 25;
+        const infoX = avatarX + avatarSize / 2 + (player.isLocal ? 136 : 68);
+        const infoWidth = player.isLocal ? 265 : 106;
+        const infoText = `${player.name}${player.isHost ? ' 房主' : ''} · ${this.playerStatus(state, player)}`;
+        this.drawAvatar(seatRoot, player, avatarX, avatarY, avatarSize, 'Avatar');
+        this.text(seatRoot, 'PlayerNameText', infoText, infoX, avatarY - 3, player.isLocal ? 25 : 17, new Color(255, 233, 190, 255), infoWidth);
 
         if (player.isLocal || state.phase === 'settlement') {
             if (state.phase === 'rolling' && !player.hasRolled) {
