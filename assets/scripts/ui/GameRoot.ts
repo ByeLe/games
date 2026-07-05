@@ -221,13 +221,13 @@ export class GameRoot extends Component {
         const seatRoot = this.getPlayerSeat(parent, player, x, y);
         const isTurn = state.currentTurnPlayerId === player.id;
         const panelColor = isTurn
-            ? new Color(119, 52, 30, player.isLocal ? 185 : 0)
-            : new Color(42, 24, 24, player.isLocal ? 155 : 0);
+            ? new Color(119, 52, 30, player.isLocal ? 185 : 150)
+            : new Color(32, 22, 22, player.isLocal ? 155 : 135);
         const panelStroke = isTurn
-            ? new Color(255, 214, 98, player.isLocal ? 220 : 0)
-            : new Color(151, 111, 71, player.isLocal ? 180 : 0);
-        const seatWidth = player.isLocal ? 630 : 190;
-        const seatHeight = player.isLocal ? 178 : 132;
+            ? new Color(255, 214, 98, player.isLocal ? 220 : 150)
+            : new Color(151, 111, 71, player.isLocal ? 180 : 95);
+        const seatWidth = player.isLocal ? 630 : 160;
+        const seatHeight = player.isLocal ? 178 : 118;
         this.panel(seatRoot, 'SeatPanel', 0, 0, seatWidth, seatHeight, panelColor, panelStroke);
         this.drawAvatar(seatRoot, player, -seatWidth / 2 + (player.isLocal ? 58 : 34), player.isLocal ? 38 : 25, player.isLocal ? 58 : 38, 'Avatar');
         this.text(seatRoot, 'PlayerNameText', `${player.name}${player.isHost ? ' 房主' : ''}`, player.isLocal ? 42 : 18, player.isLocal ? 55 : 42, player.isLocal ? 28 : 21, new Color(255, 233, 190, 255), player.isLocal ? 410 : 118);
