@@ -8,6 +8,7 @@ import {
     Graphics,
     ImageAsset,
     Label,
+    Mask,
     Node,
     Sprite,
     SpriteFrame,
@@ -585,18 +586,39 @@ export class GameRoot extends Component {
             legacySprite.enabled = false;
             legacySprite.spriteFrame = null;
         }
-        let imageNode = node.getChildByName('AvatarImage');
+        const maskSize = size * 0.86;
+        let maskNode = node.getChildByName('AvatarMask');
+        if (!maskNode) {
+            maskNode = new Node('AvatarMask');
+            maskNode.parent = node;
+            maskNode.layer = node.layer;
+            maskNode.setPosition(new Vec3(0, 0, 0));
+            maskNode.addComponent(UITransform);
+        }
+        maskNode.active = true;
+        maskNode.layer = node.layer;
+        maskNode.setPosition(new Vec3(0, 0, 0));
+        maskNode.setSiblingIndex(Math.max(0, node.children.length - 2));
+        maskNode.getComponent(UITransform)?.setContentSize(maskSize, maskSize);
+        let mask = maskNode.getComponent(Mask);
+        if (!mask) {
+            mask = maskNode.addComponent(Mask);
+        }
+        mask.type = Mask.Type.GRAPHICS_ELLIPSE;
+
+        let imageNode = maskNode.getChildByName('AvatarImage');
         if (!imageNode) {
             imageNode = new Node('AvatarImage');
-            imageNode.parent = node;
-            imageNode.layer = node.layer;
+            imageNode.parent = maskNode;
+            imageNode.layer = maskNode.layer;
             imageNode.setPosition(new Vec3(0, 0, 0));
             imageNode.addComponent(UITransform);
         }
         imageNode.active = true;
-        imageNode.layer = node.layer;
-        imageNode.setSiblingIndex(node.children.length - 1);
-        imageNode.getComponent(UITransform)?.setContentSize(size * 0.86, size * 0.86);
+        imageNode.layer = maskNode.layer;
+        imageNode.setPosition(new Vec3(0, 0, 0));
+        imageNode.setSiblingIndex(maskNode.children.length - 1);
+        imageNode.getComponent(UITransform)?.setContentSize(maskSize, maskSize);
         let sprite = imageNode.getComponent(Sprite);
         if (!sprite) {
             sprite = imageNode.addComponent(Sprite);
