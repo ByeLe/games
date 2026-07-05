@@ -144,18 +144,7 @@ export class GameRoot extends Component {
     }
 
     private drawBackground(parent: Node): void {
-        const bg = this.createNode('Background', parent, 0, 0, DESIGN_WIDTH, DESIGN_HEIGHT);
-        const graphics = this.graphics(bg);
-        graphics.clear();
-        graphics.fillColor = new Color(56, 13, 18, 255);
-        graphics.rect(-DESIGN_WIDTH / 2, -DESIGN_HEIGHT / 2, DESIGN_WIDTH, DESIGN_HEIGHT);
-        graphics.fill();
-        graphics.fillColor = new Color(97, 23, 28, 255);
-        graphics.roundRect(-320, -540, 640, 1080, 28);
-        graphics.fill();
-        graphics.fillColor = new Color(145, 35, 30, 220);
-        graphics.roundRect(-286, -506, 572, 1012, 22);
-        graphics.fill();
+        this.createNode('Background', parent, 0, 0, DESIGN_WIDTH, DESIGN_HEIGHT);
     }
 
     private drawEntryMenu(parent: Node): void {
@@ -179,23 +168,11 @@ export class GameRoot extends Component {
     }
 
     private drawTable(parent: Node, state: RoomState): void {
-        const table = this.createNode('Table', parent, 0, 120, 590, 480);
-        const graphics = this.graphics(table);
-        graphics.clear();
-        graphics.fillColor = new Color(68, 34, 20, 255);
-        graphics.ellipse(0, 0, 292, 226);
-        graphics.fill();
-        graphics.fillColor = new Color(42, 111, 74, 255);
-        graphics.ellipse(0, 10, 250, 190);
-        graphics.fill();
-        graphics.strokeColor = new Color(223, 174, 90, 255);
-        graphics.lineWidth = 8;
-        graphics.ellipse(0, 10, 250, 190);
-        graphics.stroke();
+        this.panel(parent, 'Table', 0, 120, 590, 480, new Color(22, 18, 18, 35), new Color(238, 190, 98, 70));
 
         const lastBid = state.lastBid ? `${this.playerName(state, state.lastBid.playerId)}：${state.lastBid.quantity} 个 ${state.lastBid.face}` : '等待叫牌';
         this.text(parent, 'LastBidText', lastBid, 0, 165, 34, new Color(255, 237, 184, 255), 480);
-        this.text(parent, 'RuleText', state.onesAreWild ? '规则：1 当前为万能点' : '规则：1 已关闭万能', 0, 112, 24, new Color(219, 242, 209, 255), 420);
+        this.text(parent, 'RuleText', '', 0, 112, 24, new Color(219, 242, 209, 255), 420);
         this.drawBidHistory(parent, state);
     }
 
@@ -421,39 +398,7 @@ export class GameRoot extends Component {
     }
 
     private drawCup(parent: Node, x: number, y: number, scale: number, name = 'Cup'): Node {
-        const node = this.createNode(name, parent, x, y, 150 * scale, 150 * scale);
-        const graphics = this.graphics(node);
-        graphics.clear();
-        graphics.fillColor = new Color(74, 12, 20, 255);
-        graphics.moveTo(-58 * scale, -52 * scale);
-        graphics.lineTo(58 * scale, -52 * scale);
-        graphics.lineTo(44 * scale, 46 * scale);
-        graphics.lineTo(-44 * scale, 46 * scale);
-        graphics.close();
-        graphics.fill();
-        graphics.fillColor = new Color(130, 24, 31, 255);
-        graphics.moveTo(-43 * scale, -42 * scale);
-        graphics.lineTo(43 * scale, -42 * scale);
-        graphics.lineTo(34 * scale, 34 * scale);
-        graphics.lineTo(-34 * scale, 34 * scale);
-        graphics.close();
-        graphics.fill();
-        graphics.fillColor = new Color(172, 43, 38, 255);
-        graphics.ellipse(0, 48 * scale, 50 * scale, 15 * scale);
-        graphics.fill();
-        graphics.strokeColor = new Color(229, 179, 82, 255);
-        graphics.lineWidth = 4 * scale;
-        graphics.ellipse(0, 48 * scale, 50 * scale, 15 * scale);
-        graphics.stroke();
-        graphics.strokeColor = new Color(229, 179, 82, 230);
-        graphics.lineWidth = 3 * scale;
-        graphics.moveTo(-49 * scale, -28 * scale);
-        graphics.lineTo(49 * scale, -28 * scale);
-        graphics.stroke();
-        graphics.fillColor = new Color(35, 10, 13, 120);
-        graphics.ellipse(0, -53 * scale, 58 * scale, 12 * scale);
-        graphics.fill();
-        return node;
+        return this.createNode(name, parent, x, y, 150 * scale, 150 * scale);
     }
 
     private drawAvatar(parent: Node, player: PlayerState, x: number, y: number, size: number, name = `Avatar-${player.id}`): void {
@@ -483,7 +428,7 @@ export class GameRoot extends Component {
     }
 
     private button(parent: Node, name: string, label: string, x: number, y: number, width: number, height: number, onClick: () => void, disabled = false): Node {
-        const node = this.panel(parent, name, x, y, width, height, disabled ? new Color(82, 75, 70, 230) : new Color(156, 35, 31, 245), new Color(234, 184, 94, 255));
+        const node = this.panel(parent, name, x, y, width, height, disabled ? new Color(82, 75, 70, 230) : new Color(255, 212, 48, 255), new Color(234, 184, 94, 255));
         const button = node.getComponent(Button);
         if (!button) {
             throw new Error(`${node.name} is missing Button. Run npm run generate:scene first.`);
@@ -502,7 +447,7 @@ export class GameRoot extends Component {
                 onClick();
             }
         });
-        this.text(node, 'ButtonLabelText', label, 0, -4, Math.min(30, height * 0.42), disabled ? new Color(186, 176, 162, 255) : new Color(255, 235, 188, 255), width - 16);
+        this.text(node, 'ButtonLabelText', label, 0, -4, Math.min(30, height * 0.42), disabled ? new Color(186, 176, 162, 255) : new Color(83, 45, 22, 255), width - 16);
         return node;
     }
 
@@ -605,6 +550,9 @@ export class GameRoot extends Component {
 
     private hideUnusedNodes(): void {
         this.nodeCache.forEach((node, key) => {
+            if (node.name === 'EditorPreview') {
+                return;
+            }
             if (node !== this.content && !this.activeNodeKeys.has(key)) {
                 this.stopNodeAnimation(node);
                 node.active = false;

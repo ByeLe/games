@@ -11,6 +11,9 @@ const DESIGN_HEIGHT = 1280;
 const GAME_ROOT_CLASS = '58c463TKptLbYib78h7FIbk';
 const UI_LAYER = 33554432;
 const DEFAULT_LAYER = 1073741824;
+const UI_WHITE_SPRITE = '16c65df7-ef2a-4899-98d9-698a78d732e1@f9941';
+const TABLE_SPRITE = '65dfc2aa-1370-4788-96aa-14d588dbfbec@f9941';
+const CUP_SPRITE = '507f07b4-2025-4b94-b1a6-92cc49ae20ec@f9941';
 
 let seed = 1;
 const objects = [];
@@ -116,20 +119,43 @@ function graphics(nodeIndex) {
   });
 }
 
-function label(nodeIndex) {
+function sprite(nodeIndex, spriteFrameUuid = UI_WHITE_SPRITE, tint = color(255, 255, 255), type = 0) {
+  return component('cc.Sprite', nodeIndex, {
+    _visFlags: 0,
+    _customMaterial: null,
+    _srcBlendFactor: 2,
+    _dstBlendFactor: 4,
+    _color: tint,
+    _spriteFrame: {
+      __uuid__: spriteFrameUuid,
+      __expectedType__: 'cc.SpriteFrame',
+    },
+    _type: type,
+    _fillType: 0,
+    _sizeMode: 0,
+    _fillCenter: vec2(0, 0),
+    _fillStart: 0,
+    _fillRange: 0,
+    _isTrimmedMode: true,
+    _useGrayscale: false,
+    _atlas: null,
+  });
+}
+
+function label(nodeIndex, value = '', fontSize = 24, tint = color(255, 255, 255)) {
   return component('cc.Label', nodeIndex, {
     _visFlags: 0,
     _customMaterial: null,
     _srcBlendFactor: 2,
     _dstBlendFactor: 4,
-    _color: color(255, 255, 255),
-    _string: '',
+    _color: tint,
+    _string: value,
     _horizontalAlign: 1,
     _verticalAlign: 1,
-    _actualFontSize: 24,
-    _fontSize: 24,
+    _actualFontSize: fontSize,
+    _fontSize: fontSize,
     _fontFamily: 'Arial',
-    _lineHeight: 31,
+    _lineHeight: fontSize + 7,
     _overflow: 3,
     _enableWrapText: true,
     _font: null,
@@ -235,17 +261,24 @@ function gameRoot(nodeIndex) {
   return component(GAME_ROOT_CLASS, nodeIndex);
 }
 
-function text(parent, name, x, y, width, height = 48) {
-  return node(name, parent, x, y, width, height, [label]);
+function text(parent, name, x, y, width, height = 48, value = '', fontSize = 24, tint = color(255, 255, 255)) {
+  return node(name, parent, x, y, width, height, [(nodeIndex) => label(nodeIndex, value, fontSize, tint)]);
 }
 
-function panel(parent, name, x, y, width, height) {
-  return node(name, parent, x, y, width, height, [graphics]);
+function image(parent, name, x, y, width, height, spriteFrameUuid, tint = color(255, 255, 255)) {
+  return node(name, parent, x, y, width, height, [(nodeIndex) => sprite(nodeIndex, spriteFrameUuid, tint)]);
 }
 
-function buttonNode(parent, name, x, y, width, height) {
+function panel(parent, name, x, y, width, height, tint = color(36, 24, 24, 230)) {
+  const root = node(name, parent, x, y, width, height, [graphics]);
+  image(root, 'EditorPreview', 0, 0, width, height, UI_WHITE_SPRITE, tint);
+  return root;
+}
+
+function buttonNode(parent, name, x, y, width, height, labelText = '') {
   const root = node(name, parent, x, y, width, height, [graphics, button]);
-  text(root, 'ButtonLabelText', 0, -4, width - 16, height);
+  image(root, 'EditorPreview', 0, 0, width, height, UI_WHITE_SPRITE, color(255, 212, 48, 255));
+  text(root, 'ButtonLabelText', 0, -4, width - 16, height, labelText, Math.min(30, height * 0.42), color(83, 45, 22, 255));
   return root;
 }
 
@@ -259,7 +292,7 @@ function diceRow(parent, name, x, y, dieSize) {
 }
 
 function cup(parent, name, x, y, scale) {
-  return panel(parent, name, x, y, 150 * scale, 150 * scale);
+  return image(parent, name, x, y, 150 * scale, 150 * scale, CUP_SPRITE);
 }
 
 function avatar(parent, name, x, y, valueSize) {
@@ -331,66 +364,66 @@ function buildScene() {
   objects[canvasNode]._components.push(ref(gameRoot(canvasNode)));
 
   const runtime = node('RuntimeUI', canvasNode, 0, 0, DESIGN_WIDTH, DESIGN_HEIGHT);
-  panel(runtime, 'Background', 0, 0, DESIGN_WIDTH, DESIGN_HEIGHT);
+  image(runtime, 'Background', 0, 0, DESIGN_WIDTH, DESIGN_HEIGHT, TABLE_SPRITE);
 
-  panel(runtime, 'EntryModePanel', 0, 95, 620, 460);
-  text(runtime, 'EntryTitleText', 0, 260, 560, 68);
-  text(runtime, 'EntryHintText', 0, 198, 560, 44);
-  buttonNode(runtime, 'SingleModeButton', 0, 72, 360, 78);
-  buttonNode(runtime, 'OnlineModeButton', 0, -42, 360, 78);
-  text(runtime, 'OnlineReservedText', 0, -138, 540, 40);
+  panel(runtime, 'EntryModePanel', 0, 95, 620, 460, color(28, 21, 22, 238));
+  text(runtime, 'EntryTitleText', 0, 260, 560, 68, '大话骰', 52, color(255, 228, 162));
+  text(runtime, 'EntryHintText', 0, 198, 560, 44, '选择玩法后创建房间', 27, color(238, 211, 166));
+  buttonNode(runtime, 'SingleModeButton', 0, 72, 360, 78, '单机模式');
+  buttonNode(runtime, 'OnlineModeButton', 0, -42, 360, 78, '联网模式');
+  text(runtime, 'OnlineReservedText', 0, -138, 540, 40, '联网模式已预留微信云开发接口，当前先走本地模拟', 22, color(218, 201, 168));
 
-  panel(runtime, 'TopBar', 0, 570, 660, 110);
-  text(runtime, 'RoomIdText', -190, 596, 260, 48);
-  text(runtime, 'PhaseText', -185, 556, 300, 40);
-  buttonNode(runtime, 'ShareButton', 180, 590, 120, 52);
-  text(runtime, 'MessageText', 0, 508, 640, 42);
+  panel(runtime, 'TopBar', 0, 570, 660, 110, color(42, 20, 20, 235));
+  text(runtime, 'RoomIdText', -190, 596, 260, 48, '房间 ----', 32, color(255, 230, 178));
+  text(runtime, 'PhaseText', -185, 556, 300, 40, '大厅 · 单机', 24, color(245, 206, 135));
+  buttonNode(runtime, 'ShareButton', 180, 590, 120, 52, '分享');
+  text(runtime, 'MessageText', 0, 508, 640, 42, '等待创建房间', 24, color(255, 238, 203));
 
-  panel(runtime, 'Table', 0, 120, 590, 480);
-  text(runtime, 'LastBidText', 0, 165, 480, 56);
-  text(runtime, 'RuleText', 0, 112, 420, 42);
-  text(runtime, 'BidHistoryText', 0, -105, 560, 38);
+  panel(runtime, 'Table', 0, 120, 590, 480, color(22, 18, 18, 30));
+  text(runtime, 'LastBidText', 0, 165, 480, 56, '等待叫牌', 34, color(255, 237, 184));
+  text(runtime, 'RuleText', 0, 112, 420, 42, '', 24, color(219, 242, 209));
+  text(runtime, 'BidHistoryText', 0, -105, 560, 38, '叫牌记录会显示在这里', 22, color(234, 215, 168));
 
   playerSeatTemplate(runtime);
 
-  buttonNode(runtime, 'ReadyButton', -115, -570, 190, 62);
-  buttonNode(runtime, 'MockJoinButton', 115, -570, 190, 62);
-  buttonNode(runtime, 'RollButton', 0, -570, 230, 62);
-  buttonNode(runtime, 'BidActionButton', -120, -570, 190, 62);
-  buttonNode(runtime, 'OpenActionButton', 120, -570, 190, 62);
-  buttonNode(runtime, 'RestartButton', 0, -570, 240, 62);
+  buttonNode(runtime, 'ReadyButton', -115, -570, 190, 62, '准备');
+  buttonNode(runtime, 'MockJoinButton', 115, -570, 190, 62, '模拟加入');
+  buttonNode(runtime, 'RollButton', 0, -570, 230, 62, '摇骰');
+  buttonNode(runtime, 'BidActionButton', -120, -570, 190, 62, '叫牌');
+  buttonNode(runtime, 'OpenActionButton', 120, -570, 190, 62, '开');
+  buttonNode(runtime, 'RestartButton', 0, -570, 240, 62, '再来一局');
 
-  panel(runtime, 'BidPicker', 0, -470, 540, 76);
-  buttonNode(runtime, 'QuantityMinusButton', -220, -470, 52, 52);
-  text(runtime, 'SelectedQuantityText', -142, -477, 94, 43);
-  buttonNode(runtime, 'QuantityPlusButton', -62, -470, 52, 52);
-  buttonNode(runtime, 'FaceMinusButton', 62, -470, 52, 52);
-  panel(runtime, 'SelectedFaceDie', 136, -470, 40, 40);
-  buttonNode(runtime, 'FacePlusButton', 220, -470, 52, 52);
+  panel(runtime, 'BidPicker', 0, -470, 540, 76, color(28, 24, 24, 230));
+  buttonNode(runtime, 'QuantityMinusButton', -220, -470, 52, 52, '-');
+  text(runtime, 'SelectedQuantityText', -142, -477, 94, 43, '1 个', 27, color(255, 233, 190));
+  buttonNode(runtime, 'QuantityPlusButton', -62, -470, 52, 52, '+');
+  buttonNode(runtime, 'FaceMinusButton', 62, -470, 52, 52, '-');
+  panel(runtime, 'SelectedFaceDie', 136, -470, 40, 40, color(255, 248, 228));
+  buttonNode(runtime, 'FacePlusButton', 220, -470, 52, 52, '+');
 
   const rolling = node('RollingCenterArea', runtime, 0, 80, 560, 360);
-  text(rolling, 'RollingCenterTitleText', 0, 152, 500, 44);
-  panel(rolling, 'DiceTray', 0, -38, 429, 165);
+  text(rolling, 'RollingCenterTitleText', 0, 152, 500, 44, '摇完后上拖骰盅看牌', 28, color(255, 230, 178));
+  panel(rolling, 'DiceTray', 0, -38, 429, 165, color(72, 36, 23));
   diceRow(rolling, 'CenterDiceRow', 0, -25, 62);
   cup(rolling, 'CenterRollingCup-player-local', 0, -2, 1.75);
-  text(rolling, 'CupDragHintText', 0, -146, 500, 40);
+  text(rolling, 'CupDragHintText', 0, -146, 500, 40, '上拖看牌 · 下拖盖住', 22, color(218, 201, 168));
 
-  panel(runtime, 'Settlement', 0, 35, 620, 560);
-  text(runtime, 'SettlementTitleText', 0, 280, 560, 60);
-  text(runtime, 'SettlementLastBidText', -36, 226, 450, 44);
-  panel(runtime, 'SettlementLastBidDie', 225, 226, 40, 40);
-  text(runtime, 'SettlementCountText', 0, 182, 560, 44);
-  text(runtime, 'SettlementLoserText', 0, 140, 560, 50);
+  panel(runtime, 'Settlement', 0, 35, 620, 560, color(22, 18, 18, 248));
+  text(runtime, 'SettlementTitleText', 0, 280, 560, 60, '开牌结算', 40, color(255, 228, 162));
+  text(runtime, 'SettlementLastBidText', -36, 226, 450, 44, '上一手：--', 27, color(245, 219, 174));
+  panel(runtime, 'SettlementLastBidDie', 225, 226, 40, 40, color(255, 248, 228));
+  text(runtime, 'SettlementCountText', 0, 182, 560, 44, '实际计数：--', 27, color(245, 219, 174));
+  text(runtime, 'SettlementLoserText', 0, 140, 560, 50, '输家：--', 32, color(255, 116, 96));
   for (let face = 1; face <= 6; face += 1) {
     const col = (face - 1) % 3;
     const row = Math.floor((face - 1) / 3);
     const itemX = -205 + col * 205;
     const itemY = 72 - row * 70;
-    panel(runtime, `SettlementFace${face}Die`, itemX - 34, itemY, 38, 38);
-    text(runtime, `SettlementFace${face}CountText`, itemX + 34, itemY - 4, 82, 42);
+    panel(runtime, `SettlementFace${face}Die`, itemX - 34, itemY, 38, 38, color(255, 248, 228));
+    text(runtime, `SettlementFace${face}CountText`, itemX + 34, itemY - 4, 82, 42, 'x 0', 25, color(255, 240, 206));
   }
-  text(runtime, 'SettlementPlayersTitleText', 0, -80, 540, 40);
-  panel(runtime, 'SettlementPlayersViewportBg', 0, -168, 550, 158);
+  text(runtime, 'SettlementPlayersTitleText', 0, -80, 540, 40, '玩家骰面', 24, color(230, 205, 155));
+  panel(runtime, 'SettlementPlayersViewportBg', 0, -168, 550, 158, color(34, 25, 24, 210));
   const settlementViewport = node('SettlementPlayersViewport', runtime, 0, -168, 540, 150, [mask]);
   const settlementContent = node('SettlementPlayersContent', settlementViewport, 0, 0, 540, 260);
   const settlementPlayers = ['player-local', 'player-ai-1', 'player-ai-2', 'player-ai-3', 'player-ai-4', 'player-ai-5'];
