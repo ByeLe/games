@@ -545,7 +545,7 @@ export class GameRoot extends Component {
 
     private drawAvatar(parent: Node, player: PlayerState, x: number, y: number, size: number, name = `Avatar-${player.id}`): void {
         const node = this.createNode(name, parent, x, y, size, size);
-        const sprite = this.avatarSprite(node);
+        const sprite = this.avatarSprite(node, size);
         const avatarFrame = player.avatarUrl ? this.avatarFrames.get(player.avatarUrl) : null;
         sprite.spriteFrame = avatarFrame || null;
         sprite.enabled = !!avatarFrame;
@@ -554,10 +554,7 @@ export class GameRoot extends Component {
         }
         const graphics = this.graphics(node);
         graphics.clear();
-        graphics.enabled = !avatarFrame;
-        if (avatarFrame) {
-            return;
-        }
+        graphics.enabled = true;
         const avatarColors = [
             new Color(242, 178, 83, 255),
             new Color(91, 165, 195, 255),
@@ -573,17 +570,36 @@ export class GameRoot extends Component {
         graphics.lineWidth = Math.max(2, size * 0.08);
         graphics.circle(0, 0, size / 2);
         graphics.stroke();
-        graphics.fillColor = new Color(76, 38, 36, 255);
-        graphics.circle(0, size * 0.12, size * 0.15);
-        graphics.fill();
-        graphics.roundRect(-size * 0.24, -size * 0.26, size * 0.48, size * 0.28, size * 0.12);
-        graphics.fill();
+        if (!avatarFrame) {
+            graphics.fillColor = new Color(76, 38, 36, 255);
+            graphics.circle(0, size * 0.12, size * 0.15);
+            graphics.fill();
+            graphics.roundRect(-size * 0.24, -size * 0.26, size * 0.48, size * 0.28, size * 0.12);
+            graphics.fill();
+        }
     }
 
-    private avatarSprite(node: Node): Sprite {
-        let sprite = node.getComponent(Sprite);
+    private avatarSprite(node: Node, size: number): Sprite {
+        const legacySprite = node.getComponent(Sprite);
+        if (legacySprite) {
+            legacySprite.enabled = false;
+            legacySprite.spriteFrame = null;
+        }
+        let imageNode = node.getChildByName('AvatarImage');
+        if (!imageNode) {
+            imageNode = new Node('AvatarImage');
+            imageNode.parent = node;
+            imageNode.layer = node.layer;
+            imageNode.setPosition(new Vec3(0, 0, 0));
+            imageNode.addComponent(UITransform);
+        }
+        imageNode.active = true;
+        imageNode.layer = node.layer;
+        imageNode.setSiblingIndex(node.children.length - 1);
+        imageNode.getComponent(UITransform)?.setContentSize(size * 0.86, size * 0.86);
+        let sprite = imageNode.getComponent(Sprite);
         if (!sprite) {
-            sprite = node.addComponent(Sprite);
+            sprite = imageNode.addComponent(Sprite);
             sprite.type = Sprite.Type.SIMPLE;
             sprite.sizeMode = Sprite.SizeMode.CUSTOM;
         }
