@@ -134,10 +134,12 @@ export class GameRoot extends Component {
         this.drawTopBar(this.content, this.state);
         this.drawTable(this.content, this.state);
         this.drawPlayers(this.content, this.state);
-        this.drawControls(this.content, this.state);
-        this.drawRollingCenter(this.content, this.state);
         if (this.state.settlement) {
             this.drawSettlement(this.content, this.state);
+            this.drawControls(this.content, this.state);
+        } else {
+            this.drawControls(this.content, this.state);
+            this.drawRollingCenter(this.content, this.state);
         }
         this.hideUnusedNodes();
         this.syncRollingAnimations(this.state);
@@ -510,6 +512,7 @@ export class GameRoot extends Component {
         if (node.parent !== parent) {
             node.parent = parent;
         }
+        node.setSiblingIndex(parent.children.length - 1);
         node.setPosition(new Vec3(x, y, 0));
         node.layer = parent.layer;
         const transform = node.getComponent(UITransform);
@@ -536,6 +539,7 @@ export class GameRoot extends Component {
         this.nodeCache.set(key, seatNode);
         this.activeNodeKeys.add(key);
         seatNode.active = true;
+        seatNode.setSiblingIndex(parent.children.length - 1);
         seatNode.setPosition(new Vec3(x, y, 0));
         const transform = seatNode.getComponent(UITransform);
         if (!transform) {
