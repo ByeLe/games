@@ -591,6 +591,9 @@ export class GameRoot extends Component {
     }
 
     private loadAvatarFrame(url: string): void {
+        if (!this.canDownloadAvatar(url)) {
+            return;
+        }
         if (this.avatarFrames.has(url) || this.loadingAvatarUrls.has(url)) {
             return;
         }
@@ -608,6 +611,13 @@ export class GameRoot extends Component {
             this.avatarFrames.set(url, spriteFrame);
             this.render();
         });
+    }
+
+    private canDownloadAvatar(url: string): boolean {
+        if (url.includes('thirdwx.qlogo.cn')) {
+            return false;
+        }
+        return true;
     }
 
     private button(parent: Node, name: string, label: string, x: number, y: number, width: number, height: number, onClick: () => void, disabled = false): Node {

@@ -236,7 +236,7 @@ function createPlayer(openid, profile, seatIndex, isHost) {
   return {
     id: openid,
     name: profile.name,
-    avatarUrl: profile.avatarUrl,
+    avatarUrl: profile.avatarUrl || '',
     seatIndex,
     isHost,
     isReady: false,

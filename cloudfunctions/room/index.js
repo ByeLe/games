@@ -1,4 +1,5 @@
 const cloud = require('wx-server-sdk');
+const https = require('https');
 const {
   bid,
   createRoom,
@@ -63,12 +64,12 @@ function isCollectionExistsError(error) {
 }
 
 async function createRoomAction(event, openid, now) {
-  assertProfile(event.profile);
+  const profile = await normalizeProfile(event.profile, openid);
   const joinToken = randomToken();
   const roomId = await createUniqueRoomId();
   const room = createRoom({
     openid,
-    profile: event.profile,
+    profile,
     roomId,
     joinTokenHash: hashToken(joinToken),
     now,
@@ -82,10 +83,10 @@ async function createRoomAction(event, openid, now) {
 }
 
 async function joinRoomAction(event, openid, now) {
-  assertProfile(event.profile);
+  const profile = await normalizeProfile(event.profile, openid);
   const { roomDocId, room } = await findRoomByToken(event.roomId, event.joinToken);
   const oldVersion = room.version;
-  const nextRoom = joinRoom(room, { openid, profile: event.profile, now });
+  const nextRoom = joinRoom(room, { openid, profile, now });
   await updateRoomIfVersion(roomDocId, oldVersion, nextRoom);
   const dice = await getPrivateDice(roomDocId, openid);
   return {
@@ -234,9 +235,73 @@ function hashToken(token) {
 }
 
 function assertProfile(profile) {
-  if (!profile?.name || !profile?.avatarUrl) {
+  if (!profile?.name) {
     throw new Error('需要授权头像昵称后才能联网游戏。');
   }
+}
+
+async function normalizeProfile(profile, openid) {
+  assertProfile(profile);
+  const name = String(profile.name).trim().slice(0, 20);
+  const avatarUrl = String(profile.avatarUrl || '');
+  if (!avatarUrl) {
+    return { name, avatarUrl: '' };
+  }
+  if (isCloudAvatarUrl(avatarUrl)) {
+    return { name, avatarUrl };
+  }
+  try {
+    return { name, avatarUrl: await cacheAvatar(avatarUrl, openid) };
+  } catch (error) {
+    console.error('[room] cache avatar failed', { openid, avatarUrl, error });
+    return { name, avatarUrl: '' };
+  }
+}
+
+function isCloudAvatarUrl(url) {
+  return url.includes('.tcb.qcloud.la') || url.startsWith('cloud://');
+}
+
+async function cacheAvatar(url, openid) {
+  const fileContent = await downloadFileBuffer(url);
+  const cloudPath = `avatars/${safeFilePart(openid)}-${hashToken(url)}.jpg`;
+  const uploadResult = await cloud.uploadFile({ cloudPath, fileContent });
+  const fileID = uploadResult.fileID;
+  const tempResult = await cloud.getTempFileURL({ fileList: [fileID] });
+  const tempFile = tempResult.fileList?.[0];
+  if (!tempFile?.tempFileURL) {
+    throw new Error('头像临时链接生成失败。');
+  }
+  return tempFile.tempFileURL;
+}
+
+function downloadFileBuffer(url, redirectCount = 0) {
+  if (redirectCount > 3) {
+    return Promise.reject(new Error('头像下载重定向过多。'));
+  }
+  return new Promise((resolve, reject) => {
+    https.get(url, (response) => {
+      const statusCode = response.statusCode || 0;
+      const location = response.headers.location;
+      if (statusCode >= 300 && statusCode < 400 && location) {
+        response.resume();
+        resolve(downloadFileBuffer(new URL(location, url).toString(), redirectCount + 1));
+        return;
+      }
+      if (statusCode < 200 || statusCode >= 300) {
+        response.resume();
+        reject(new Error(`头像下载失败：${statusCode}`));
+        return;
+      }
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(chunk));
+      response.on('end', () => resolve(Buffer.concat(chunks)));
+    }).on('error', reject);
+  });
+}
+
+function safeFilePart(text) {
+  return String(text || 'anonymous').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80);
 }
 
 function stripCloudId(room) {
