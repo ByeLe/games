@@ -303,6 +303,7 @@ export class GameRoot extends Component {
 
     private drawSettlement(parent: Node, state: RoomState): void {
         const settlement = state.settlement!;
+        this.panel(parent, 'SettlementBackdrop', 0, 0, DESIGN_WIDTH, DESIGN_HEIGHT, new Color(8, 7, 7, 225), new Color(8, 7, 7, 0));
         this.panel(parent, 'Settlement', 0, 35, 620, 560, new Color(22, 18, 18, 248), new Color(238, 190, 98, 255));
         this.text(parent, 'SettlementTitleText', '开牌结算', 0, 280, 40, new Color(255, 228, 162, 255), 560);
         this.text(parent, 'SettlementLastBidText', `上一手：${this.playerName(state, settlement.lastBid.playerId)} 叫 ${settlement.lastBid.quantity} 个`, -36, 226, 27, new Color(245, 219, 174, 255), 450);

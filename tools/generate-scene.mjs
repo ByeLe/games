@@ -408,6 +408,7 @@ function buildScene() {
   cup(rolling, 'CenterRollingCup-player-local', 0, -2, 1.75);
   text(rolling, 'CupDragHintText', 0, -146, 500, 40, '摇骰前不会展示点数', 22, color(218, 201, 168));
 
+  panel(runtime, 'SettlementBackdrop', 0, 0, DESIGN_WIDTH, DESIGN_HEIGHT, color(8, 7, 7, 225));
   panel(runtime, 'Settlement', 0, 35, 620, 560, color(22, 18, 18, 248));
   text(runtime, 'SettlementTitleText', 0, 280, 560, 60, '开牌结算', 40, color(255, 228, 162));
   text(runtime, 'SettlementLastBidText', -36, 226, 450, 44, '上一手：--', 27, color(245, 219, 174));
