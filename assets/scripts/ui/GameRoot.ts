@@ -11,7 +11,6 @@ import {
     Node,
     Sprite,
     SpriteFrame,
-    Texture2D,
     Tween,
     instantiate,
     tween,
@@ -620,10 +619,7 @@ export class GameRoot extends Component {
                 console.error('[GameRoot] load avatar failed', { cacheKey, loadUrl, error });
                 return;
             }
-            const texture = new Texture2D();
-            texture.image = imageAsset;
-            const spriteFrame = new SpriteFrame();
-            spriteFrame.texture = texture;
+            const spriteFrame = SpriteFrame.createWithImage(imageAsset);
             this.avatarFrames.set(cacheKey, spriteFrame);
             this.render();
         });
