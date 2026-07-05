@@ -12,6 +12,11 @@ interface WxApi {
             success?: (res: { result: T }) => void;
             fail?: (error: unknown) => void;
         }) => Promise<{ result: T }> | void;
+        downloadFile?: (options: {
+            fileID: string;
+            success?: (res: { tempFilePath: string }) => void;
+            fail?: (error: unknown) => void;
+        }) => Promise<{ tempFilePath: string }> | void;
         database?: () => {
             collection: (name: string) => {
                 doc: (id: string) => {
@@ -309,6 +314,27 @@ export class WechatPlatform {
             });
             if (maybePromise && typeof (maybePromise as Promise<unknown>).then === 'function') {
                 (maybePromise as Promise<{ result: T }>).then(handleSuccess).catch(fail);
+            }
+        });
+    }
+
+    downloadCloudFile(fileID: string): Promise<string> {
+        const wxApi = this.requireWx();
+        if (!wxApi.cloud?.downloadFile) {
+            return Promise.reject(new Error('当前环境不支持下载云存储文件。'));
+        }
+        return new Promise<string>((resolve, reject) => {
+            const fail = (error: unknown) => {
+                console.error('[WechatPlatform] download cloud file failed', { fileID, error });
+                reject(error);
+            };
+            const maybePromise = wxApi.cloud?.downloadFile?.({
+                fileID,
+                success: (res) => resolve(res.tempFilePath),
+                fail,
+            });
+            if (maybePromise && typeof (maybePromise as Promise<unknown>).then === 'function') {
+                (maybePromise as Promise<{ tempFilePath: string }>).then((res) => resolve(res.tempFilePath)).catch(fail);
             }
         });
     }

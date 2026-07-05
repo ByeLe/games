@@ -266,13 +266,10 @@ async function cacheAvatar(url, openid) {
   const fileContent = await downloadFileBuffer(url);
   const cloudPath = `avatars/${safeFilePart(openid)}-${hashToken(url)}.jpg`;
   const uploadResult = await cloud.uploadFile({ cloudPath, fileContent });
-  const fileID = uploadResult.fileID;
-  const tempResult = await cloud.getTempFileURL({ fileList: [fileID] });
-  const tempFile = tempResult.fileList?.[0];
-  if (!tempFile?.tempFileURL) {
-    throw new Error('头像临时链接生成失败。');
+  if (!uploadResult.fileID) {
+    throw new Error('头像云文件上传失败。');
   }
-  return tempFile.tempFileURL;
+  return uploadResult.fileID;
 }
 
 function downloadFileBuffer(url, redirectCount = 0) {

@@ -598,19 +598,46 @@ export class GameRoot extends Component {
             return;
         }
         this.loadingAvatarUrls.add(url);
-        assetManager.loadRemote<ImageAsset>(url, { ext: '.png' }, (error, imageAsset) => {
-            this.loadingAvatarUrls.delete(url);
+        this.resolveAvatarLoadUrl(url)
+            .then((loadUrl) => this.loadAvatarImage(url, loadUrl))
+            .catch((error) => {
+                this.loadingAvatarUrls.delete(url);
+                console.error('[GameRoot] prepare avatar failed', url, error);
+            });
+    }
+
+    private async resolveAvatarLoadUrl(url: string): Promise<string> {
+        if (url.startsWith('cloud://')) {
+            return this.platform.downloadCloudFile(url);
+        }
+        return url;
+    }
+
+    private loadAvatarImage(cacheKey: string, loadUrl: string): void {
+        assetManager.loadRemote<ImageAsset>(loadUrl, { ext: this.avatarExt(cacheKey, loadUrl) }, (error, imageAsset) => {
+            this.loadingAvatarUrls.delete(cacheKey);
             if (error || !imageAsset) {
-                console.error('[GameRoot] load avatar failed', url, error);
+                console.error('[GameRoot] load avatar failed', { cacheKey, loadUrl, error });
                 return;
             }
             const texture = new Texture2D();
             texture.image = imageAsset;
             const spriteFrame = new SpriteFrame();
             spriteFrame.texture = texture;
-            this.avatarFrames.set(url, spriteFrame);
+            this.avatarFrames.set(cacheKey, spriteFrame);
             this.render();
         });
+    }
+
+    private avatarExt(cacheKey: string, url: string): string {
+        if (cacheKey.startsWith('cloud://')) {
+            return '.jpg';
+        }
+        const cleanUrl = url.split('?')[0].toLowerCase();
+        if (cleanUrl.endsWith('.jpg') || cleanUrl.endsWith('.jpeg')) {
+            return '.jpg';
+        }
+        return '.png';
     }
 
     private canDownloadAvatar(url: string): boolean {
