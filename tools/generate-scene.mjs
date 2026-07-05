@@ -373,7 +373,7 @@ function buildScene() {
   buttonNode(runtime, 'OnlineModeButton', 0, -42, 360, 78, '联网模式');
   text(runtime, 'OnlineReservedText', 0, -82, 540, 40, '', 20, color(218, 201, 168));
 
-  panel(runtime, 'TopBar', 0, 570, 660, 110, color(42, 20, 20, 190));
+  panel(runtime, 'TopBar', 0, 570, 660, 110, color(42, 20, 20, 165));
   text(runtime, 'RoomIdText', -190, 596, 260, 48, '房间 ----', 32, color(255, 230, 178));
   text(runtime, 'PhaseText', -185, 556, 300, 40, '大厅 · 单机', 24, color(245, 206, 135));
   buttonNode(runtime, 'ShareButton', 180, 590, 120, 52, '分享');

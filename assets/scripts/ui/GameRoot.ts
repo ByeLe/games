@@ -157,7 +157,7 @@ export class GameRoot extends Component {
     }
 
     private drawTopBar(parent: Node, state: RoomState): void {
-        this.panel(parent, 'TopBar', 0, 570, 660, 110, new Color(42, 20, 20, 190), new Color(202, 154, 74, 190));
+        this.panel(parent, 'TopBar', 0, 570, 660, 110, new Color(42, 20, 20, 165), new Color(202, 154, 74, 175));
         this.text(parent, 'RoomIdText', `房间 ${state.roomId}`, -190, 596, 32, new Color(255, 230, 178, 255), 260);
         this.text(parent, 'PhaseText', `${this.phaseLabel(state)} · ${this.roomMode === 'single' ? '单机' : '联网'}`, -185, 556, 24, new Color(245, 206, 135, 255), 300);
         this.button(parent, 'ShareButton', '分享', 180, 590, 120, 52, () => {
@@ -221,11 +221,14 @@ export class GameRoot extends Component {
         const seatRoot = this.getPlayerSeat(parent, player, x, y);
         const isTurn = state.currentTurnPlayerId === player.id;
         const panelColor = isTurn
-            ? new Color(119, 52, 30, player.isLocal ? 210 : 150)
-            : new Color(42, 24, 24, player.isLocal ? 190 : 95);
+            ? new Color(119, 52, 30, player.isLocal ? 185 : 0)
+            : new Color(42, 24, 24, player.isLocal ? 155 : 0);
+        const panelStroke = isTurn
+            ? new Color(255, 214, 98, player.isLocal ? 220 : 0)
+            : new Color(151, 111, 71, player.isLocal ? 180 : 0);
         const seatWidth = player.isLocal ? 630 : 190;
         const seatHeight = player.isLocal ? 178 : 132;
-        this.panel(seatRoot, 'SeatPanel', 0, 0, seatWidth, seatHeight, panelColor, isTurn ? new Color(255, 214, 98, 255) : new Color(151, 111, 71, 255));
+        this.panel(seatRoot, 'SeatPanel', 0, 0, seatWidth, seatHeight, panelColor, panelStroke);
         this.drawAvatar(seatRoot, player, -seatWidth / 2 + (player.isLocal ? 58 : 34), player.isLocal ? 38 : 25, player.isLocal ? 58 : 38, 'Avatar');
         this.text(seatRoot, 'PlayerNameText', `${player.name}${player.isHost ? ' 房主' : ''}`, player.isLocal ? 42 : 18, player.isLocal ? 55 : 42, player.isLocal ? 28 : 21, new Color(255, 233, 190, 255), player.isLocal ? 410 : 118);
         this.text(seatRoot, 'PlayerStatusText', this.playerStatus(state, player), player.isLocal ? 42 : 18, player.isLocal ? 22 : 13, player.isLocal ? 22 : 18, new Color(230, 205, 155, 255), player.isLocal ? 410 : 118);
@@ -499,6 +502,10 @@ export class GameRoot extends Component {
         }
         this.activeNodeKeys.add(key);
         node.active = true;
+        const editorPreview = node.getChildByName('EditorPreview');
+        if (editorPreview) {
+            editorPreview.active = false;
+        }
         if (node.parent !== parent) {
             node.parent = parent;
         }
