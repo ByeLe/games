@@ -362,10 +362,13 @@ export class GameRoot extends Component {
         const seatHeight = player.isLocal ? 178 : 118;
         this.panel(seatRoot, 'SeatPanel', 0, 0, seatWidth, seatHeight, panelColor, panelStroke);
         const avatarSize = player.isLocal ? 58 : 38;
-        const avatarX = -seatWidth / 2 + (player.isLocal ? 58 : 34);
         const avatarY = player.isLocal ? 38 : 25;
-        const infoX = avatarX + avatarSize / 2 + (player.isLocal ? 136 : 68);
         const infoWidth = player.isLocal ? 265 : 106;
+        const infoGap = player.isLocal ? 16 : 8;
+        const groupCenterX = player.isLocal ? 42 : 0;
+        const groupLeftX = groupCenterX - (avatarSize + infoGap + infoWidth) / 2;
+        const avatarX = groupLeftX + avatarSize / 2;
+        const infoX = groupLeftX + avatarSize + infoGap + infoWidth / 2;
         const infoText = `${player.name}${player.isHost ? ' 房主' : ''} · ${this.playerStatus(state, player)}`;
         this.drawAvatar(seatRoot, player, avatarX, avatarY, avatarSize, 'Avatar');
         this.text(seatRoot, 'PlayerNameText', infoText, infoX, avatarY - 3, player.isLocal ? 25 : 17, new Color(255, 233, 190, 255), infoWidth);
