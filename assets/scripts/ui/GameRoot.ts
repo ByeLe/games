@@ -548,11 +548,16 @@ export class GameRoot extends Component {
         const sprite = this.avatarSprite(node);
         const avatarFrame = player.avatarUrl ? this.avatarFrames.get(player.avatarUrl) : null;
         sprite.spriteFrame = avatarFrame || null;
+        sprite.enabled = !!avatarFrame;
         if (!avatarFrame && player.avatarUrl) {
             this.loadAvatarFrame(player.avatarUrl);
         }
         const graphics = this.graphics(node);
         graphics.clear();
+        graphics.enabled = !avatarFrame;
+        if (avatarFrame) {
+            return;
+        }
         const avatarColors = [
             new Color(242, 178, 83, 255),
             new Color(91, 165, 195, 255),
@@ -561,22 +566,18 @@ export class GameRoot extends Component {
             new Color(229, 111, 97, 255),
             new Color(114, 132, 219, 255),
         ];
-        if (!avatarFrame) {
-            graphics.fillColor = avatarColors[player.seatIndex % avatarColors.length];
-            graphics.circle(0, 0, size / 2);
-            graphics.fill();
-        }
+        graphics.fillColor = avatarColors[player.seatIndex % avatarColors.length];
+        graphics.circle(0, 0, size / 2);
+        graphics.fill();
         graphics.strokeColor = player.isLocal ? new Color(255, 235, 165, 255) : new Color(92, 52, 43, 255);
         graphics.lineWidth = Math.max(2, size * 0.08);
         graphics.circle(0, 0, size / 2);
         graphics.stroke();
-        if (!avatarFrame) {
-            graphics.fillColor = new Color(76, 38, 36, 255);
-            graphics.circle(0, size * 0.12, size * 0.15);
-            graphics.fill();
-            graphics.roundRect(-size * 0.24, -size * 0.26, size * 0.48, size * 0.28, size * 0.12);
-            graphics.fill();
-        }
+        graphics.fillColor = new Color(76, 38, 36, 255);
+        graphics.circle(0, size * 0.12, size * 0.15);
+        graphics.fill();
+        graphics.roundRect(-size * 0.24, -size * 0.26, size * 0.48, size * 0.28, size * 0.12);
+        graphics.fill();
     }
 
     private avatarSprite(node: Node): Sprite {
