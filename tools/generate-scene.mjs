@@ -371,13 +371,13 @@ function buildScene() {
   text(runtime, 'EntryHintText', 0, 198, 560, 44, '选择玩法后创建房间', 27, color(238, 211, 166));
   buttonNode(runtime, 'SingleModeButton', 0, 72, 360, 78, '单机模式');
   buttonNode(runtime, 'OnlineModeButton', 0, -42, 360, 78, '联网模式');
-  text(runtime, 'OnlineReservedText', 0, -138, 540, 40, '联网模式已预留微信云开发接口，当前先走本地模拟', 22, color(218, 201, 168));
+  text(runtime, 'OnlineReservedText', 0, -82, 540, 40, '', 20, color(218, 201, 168));
 
   panel(runtime, 'TopBar', 0, 570, 660, 110, color(42, 20, 20, 235));
   text(runtime, 'RoomIdText', -190, 596, 260, 48, '房间 ----', 32, color(255, 230, 178));
   text(runtime, 'PhaseText', -185, 556, 300, 40, '大厅 · 单机', 24, color(245, 206, 135));
   buttonNode(runtime, 'ShareButton', 180, 590, 120, 52, '分享');
-  text(runtime, 'MessageText', 0, 508, 640, 42, '等待创建房间', 24, color(255, 238, 203));
+  text(runtime, 'MessageText', 0, 508, 640, 42, '', 24, color(255, 238, 203));
 
   panel(runtime, 'Table', 0, 120, 590, 480, color(22, 18, 18, 30));
   text(runtime, 'LastBidText', 0, 165, 480, 56, '等待叫牌', 34, color(255, 237, 184));
@@ -402,11 +402,11 @@ function buildScene() {
   buttonNode(runtime, 'FacePlusButton', 220, -470, 52, 52, '+');
 
   const rolling = node('RollingCenterArea', runtime, 0, 80, 560, 360);
-  text(rolling, 'RollingCenterTitleText', 0, 152, 500, 44, '摇完后上拖骰盅看牌', 28, color(255, 230, 178));
+  text(rolling, 'RollingCenterTitleText', 0, 152, 500, 44, '点击摇骰后生成点数', 28, color(255, 230, 178));
   panel(rolling, 'DiceTray', 0, -38, 429, 165, color(72, 36, 23));
   diceRow(rolling, 'CenterDiceRow', 0, -25, 62);
   cup(rolling, 'CenterRollingCup-player-local', 0, -2, 1.75);
-  text(rolling, 'CupDragHintText', 0, -146, 500, 40, '上拖看牌 · 下拖盖住', 22, color(218, 201, 168));
+  text(rolling, 'CupDragHintText', 0, -146, 500, 40, '摇骰前不会展示点数', 22, color(218, 201, 168));
 
   panel(runtime, 'Settlement', 0, 35, 620, 560, color(22, 18, 18, 248));
   text(runtime, 'SettlementTitleText', 0, 280, 560, 60, '开牌结算', 40, color(255, 228, 162));

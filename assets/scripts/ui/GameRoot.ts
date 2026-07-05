@@ -153,7 +153,7 @@ export class GameRoot extends Component {
         this.text(parent, 'EntryHintText', '选择玩法后创建房间', 0, 198, 27, new Color(238, 211, 166, 255), 560);
         this.button(parent, 'SingleModeButton', '单机模式', 0, 72, 360, 78, () => void this.startRoom('single'));
         this.button(parent, 'OnlineModeButton', '联网模式', 0, -42, 360, 78, () => void this.startRoom('online'));
-        this.text(parent, 'OnlineReservedText', '联网模式已预留微信云开发接口，当前先走本地模拟', 0, -138, 22, new Color(218, 201, 168, 255), 540);
+        this.text(parent, 'OnlineReservedText', '', 0, -82, 20, new Color(218, 201, 168, 255), 540);
     }
 
     private drawTopBar(parent: Node, state: RoomState): void {
@@ -164,7 +164,7 @@ export class GameRoot extends Component {
             const payload = this.service.getSharePayload();
             this.toast(`分享：${payload.title}（${payload.query}）`);
         });
-        this.text(parent, 'MessageText', state.message, 0, 508, 24, new Color(255, 238, 203, 255), 640);
+        this.text(parent, 'MessageText', '', 0, 508, 24, new Color(255, 238, 203, 255), 640);
     }
 
     private drawTable(parent: Node, state: RoomState): void {
@@ -274,13 +274,16 @@ export class GameRoot extends Component {
             return;
         }
         const center = this.createNode('RollingCenterArea', parent, 0, 80, 560, 360);
-        this.text(center, 'RollingCenterTitleText', local.hasRolled ? '上拖骰盅查看自己的牌' : '摇完后上拖骰盅看牌', 0, 152, 28, new Color(255, 230, 178, 255), 500);
-        this.drawDiceTray(center, 0, -38, 1.1);
-        this.drawDiceRow(center, local.dice, 0, -25, 62, 'CenterDiceRow');
+        const isRevealingDice = local.hasRolled && this.localCupOffsetY > 24;
+        this.text(center, 'RollingCenterTitleText', local.hasRolled ? '上拖骰盅查看自己的牌' : '点击摇骰后生成点数', 0, 152, 28, new Color(255, 230, 178, 255), 500);
+        if (isRevealingDice) {
+            this.drawDiceTray(center, 0, -38, 1.1);
+            this.drawDiceRow(center, local.dice, 0, -25, 62, 'CenterDiceRow');
+        }
         const coverY = -2 + this.localCupOffsetY;
         const cup = this.drawCup(center, 0, coverY, 1.75, `CenterRollingCup-${local.id}`);
         this.bindCupDrag(cup);
-        this.text(center, 'CupDragHintText', '上拖看牌 · 下拖盖住', 0, -146, 22, new Color(218, 201, 168, 255), 500);
+        this.text(center, 'CupDragHintText', local.hasRolled ? '上拖看牌 · 下拖盖住' : '摇骰前不会展示点数', 0, -146, 22, new Color(218, 201, 168, 255), 500);
     }
 
     private drawBidPicker(parent: Node, enabled: boolean): void {
@@ -601,7 +604,12 @@ export class GameRoot extends Component {
         this.render();
         const node = this.findNodeBySafeName(`CenterRollingCup-${playerId}`);
         if (!node) {
-            void this.service.roll(playerId);
+            this.isRollingLocal = true;
+            this.render();
+            this.scheduleOnce(() => {
+                this.isRollingLocal = false;
+                void this.service.roll(playerId);
+            }, 0.8);
             return;
         }
         this.isRollingLocal = true;
@@ -632,13 +640,13 @@ export class GameRoot extends Component {
         const basePosition = node.position.clone();
         node.angle = 0;
         tween(node)
-            .to(0.07, { position: new Vec3(basePosition.x - 18, basePosition.y + 8, 0), angle: -14 })
-            .to(0.07, { position: new Vec3(basePosition.x + 18, basePosition.y - 6, 0), angle: 14 })
-            .to(0.06, { position: new Vec3(basePosition.x - 14, basePosition.y - 8, 0), angle: -12 })
-            .to(0.06, { position: new Vec3(basePosition.x + 14, basePosition.y + 6, 0), angle: 12 })
-            .to(0.06, { position: new Vec3(basePosition.x - 10, basePosition.y + 4, 0), angle: -8 })
-            .to(0.06, { position: new Vec3(basePosition.x + 10, basePosition.y - 4, 0), angle: 8 })
-            .to(0.08, { position: basePosition, angle: 0 })
+            .to(0.1, { position: new Vec3(basePosition.x - 24, basePosition.y + 10, 0), angle: -16 })
+            .to(0.1, { position: new Vec3(basePosition.x + 24, basePosition.y - 8, 0), angle: 16 })
+            .to(0.1, { position: new Vec3(basePosition.x - 20, basePosition.y - 10, 0), angle: -14 })
+            .to(0.1, { position: new Vec3(basePosition.x + 20, basePosition.y + 8, 0), angle: 14 })
+            .to(0.1, { position: new Vec3(basePosition.x - 16, basePosition.y + 6, 0), angle: -10 })
+            .to(0.1, { position: new Vec3(basePosition.x + 16, basePosition.y - 6, 0), angle: 10 })
+            .to(0.12, { position: basePosition, angle: 0 })
             .call(onComplete)
             .start();
     }

@@ -1892,7 +1892,7 @@
     "_lpos": {
       "__type__": "cc.Vec3",
       "x": 0,
-      "y": -138,
+      "y": -82,
       "z": 0
     },
     "_lrot": {
@@ -1961,13 +1961,13 @@
       "b": 168,
       "a": 255
     },
-    "_string": "联网模式已预留微信云开发接口，当前先走本地模拟",
+    "_string": "",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
-    "_actualFontSize": 22,
-    "_fontSize": 22,
+    "_actualFontSize": 20,
+    "_fontSize": 20,
     "_fontFamily": "Arial",
-    "_lineHeight": 29,
+    "_lineHeight": 27,
     "_overflow": 3,
     "_enableWrapText": true,
     "_font": null,
@@ -2903,7 +2903,7 @@
       "b": 203,
       "a": 255
     },
-    "_string": "等待创建房间",
+    "_string": "",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
     "_actualFontSize": 24,
@@ -10291,7 +10291,7 @@
       "b": 178,
       "a": 255
     },
-    "_string": "摇完后上拖骰盅看牌",
+    "_string": "点击摇骰后生成点数",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
     "_actualFontSize": 28,
@@ -11943,7 +11943,7 @@
       "b": 168,
       "a": 255
     },
-    "_string": "上拖看牌 · 下拖盖住",
+    "_string": "摇骰前不会展示点数",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
     "_actualFontSize": 22,
