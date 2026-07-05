@@ -373,13 +373,13 @@ function buildScene() {
   buttonNode(runtime, 'OnlineModeButton', 0, -42, 360, 78, '联网模式');
   text(runtime, 'OnlineReservedText', 0, -82, 540, 40, '', 20, color(218, 201, 168));
 
-  panel(runtime, 'TopBar', 0, 570, 660, 110, color(42, 20, 20, 235));
+  panel(runtime, 'TopBar', 0, 570, 660, 110, color(42, 20, 20, 190));
   text(runtime, 'RoomIdText', -190, 596, 260, 48, '房间 ----', 32, color(255, 230, 178));
   text(runtime, 'PhaseText', -185, 556, 300, 40, '大厅 · 单机', 24, color(245, 206, 135));
   buttonNode(runtime, 'ShareButton', 180, 590, 120, 52, '分享');
   text(runtime, 'MessageText', 0, 508, 640, 42, '', 24, color(255, 238, 203));
 
-  panel(runtime, 'Table', 0, 120, 590, 480, color(22, 18, 18, 30));
+  panel(runtime, 'Table', 0, 120, 590, 480, color(22, 18, 18, 0));
   text(runtime, 'LastBidText', 0, 165, 480, 56, '等待叫牌', 34, color(255, 237, 184));
   text(runtime, 'RuleText', 0, 112, 420, 42, '', 24, color(219, 242, 209));
   text(runtime, 'BidHistoryText', 0, -105, 560, 38, '叫牌记录会显示在这里', 22, color(234, 215, 168));
@@ -393,12 +393,12 @@ function buildScene() {
   buttonNode(runtime, 'OpenActionButton', 120, -570, 190, 62, '开');
   buttonNode(runtime, 'RestartButton', 0, -570, 240, 62, '再来一局');
 
-  panel(runtime, 'BidPicker', 0, -470, 540, 76, color(28, 24, 24, 230));
+  panel(runtime, 'BidPicker', 0, -470, 560, 78, color(28, 24, 24, 170));
   buttonNode(runtime, 'QuantityMinusButton', -220, -470, 52, 52, '-');
   text(runtime, 'SelectedQuantityText', -142, -477, 94, 43, '1 个', 27, color(255, 233, 190));
   buttonNode(runtime, 'QuantityPlusButton', -62, -470, 52, 52, '+');
-  buttonNode(runtime, 'FaceMinusButton', 62, -470, 52, 52, '-');
-  panel(runtime, 'SelectedFaceDie', 136, -470, 40, 40, color(255, 248, 228));
+  buttonNode(runtime, 'FaceMinusButton', 56, -470, 52, 52, '-');
+  panel(runtime, 'SelectedFaceDie', 136, -470, 54, 54, color(255, 248, 228));
   buttonNode(runtime, 'FacePlusButton', 220, -470, 52, 52, '+');
 
   const rolling = node('RollingCenterArea', runtime, 0, 80, 560, 360);

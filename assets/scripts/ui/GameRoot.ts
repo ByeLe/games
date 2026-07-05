@@ -157,7 +157,7 @@ export class GameRoot extends Component {
     }
 
     private drawTopBar(parent: Node, state: RoomState): void {
-        this.panel(parent, 'TopBar', 0, 570, 660, 110, new Color(42, 20, 20, 235), new Color(202, 154, 74, 255));
+        this.panel(parent, 'TopBar', 0, 570, 660, 110, new Color(42, 20, 20, 190), new Color(202, 154, 74, 190));
         this.text(parent, 'RoomIdText', `房间 ${state.roomId}`, -190, 596, 32, new Color(255, 230, 178, 255), 260);
         this.text(parent, 'PhaseText', `${this.phaseLabel(state)} · ${this.roomMode === 'single' ? '单机' : '联网'}`, -185, 556, 24, new Color(245, 206, 135, 255), 300);
         this.button(parent, 'ShareButton', '分享', 180, 590, 120, 52, () => {
@@ -168,7 +168,7 @@ export class GameRoot extends Component {
     }
 
     private drawTable(parent: Node, state: RoomState): void {
-        this.panel(parent, 'Table', 0, 120, 590, 480, new Color(22, 18, 18, 35), new Color(238, 190, 98, 70));
+        this.panel(parent, 'Table', 0, 120, 590, 480, new Color(22, 18, 18, 0), new Color(238, 190, 98, 0));
 
         const lastBid = state.lastBid ? `${this.playerName(state, state.lastBid.playerId)}：${state.lastBid.quantity} 个 ${state.lastBid.face}` : '等待叫牌';
         this.text(parent, 'LastBidText', lastBid, 0, 165, 34, new Color(255, 237, 184, 255), 480);
@@ -220,7 +220,9 @@ export class GameRoot extends Component {
     private drawPlayerSeat(parent: Node, state: RoomState, player: PlayerState, x: number, y: number): void {
         const seatRoot = this.getPlayerSeat(parent, player, x, y);
         const isTurn = state.currentTurnPlayerId === player.id;
-        const panelColor = isTurn ? new Color(119, 52, 30, 245) : new Color(42, 24, 24, 220);
+        const panelColor = isTurn
+            ? new Color(119, 52, 30, player.isLocal ? 210 : 150)
+            : new Color(42, 24, 24, player.isLocal ? 190 : 95);
         const seatWidth = player.isLocal ? 630 : 190;
         const seatHeight = player.isLocal ? 178 : 132;
         this.panel(seatRoot, 'SeatPanel', 0, 0, seatWidth, seatHeight, panelColor, isTurn ? new Color(255, 214, 98, 255) : new Color(151, 111, 71, 255));
@@ -287,12 +289,12 @@ export class GameRoot extends Component {
     }
 
     private drawBidPicker(parent: Node, enabled: boolean): void {
-        this.panel(parent, 'BidPicker', 0, -470, 540, 76, new Color(28, 24, 24, 230), new Color(154, 112, 66, 255));
+        this.panel(parent, 'BidPicker', 0, -470, 560, 78, new Color(28, 24, 24, 170), new Color(154, 112, 66, 170));
         this.button(parent, 'QuantityMinusButton', '-', -220, -470, 52, 52, () => this.changeQuantity(-1), !enabled);
         this.text(parent, 'SelectedQuantityText', `${this.selectedQuantity} 个`, -142, -477, 27, new Color(255, 233, 190, 255), 94);
         this.button(parent, 'QuantityPlusButton', '+', -62, -470, 52, 52, () => this.changeQuantity(1), !enabled);
-        this.button(parent, 'FaceMinusButton', '-', 62, -470, 52, 52, () => this.changeFace(-1), !enabled);
-        this.drawDie(parent, 136, -470, 40, this.selectedFace, !enabled, 'SelectedFaceDie');
+        this.button(parent, 'FaceMinusButton', '-', 56, -470, 52, 52, () => this.changeFace(-1), !enabled);
+        this.drawDie(parent, 136, -470, 54, this.selectedFace, !enabled, 'SelectedFaceDie');
         this.button(parent, 'FacePlusButton', '+', 220, -470, 52, 52, () => this.changeFace(1), !enabled);
     }
 
@@ -363,7 +365,7 @@ export class GameRoot extends Component {
         const spots = this.pipPositions(face, size * 0.24);
         graphics.fillColor = pip;
         spots.forEach((spot) => {
-            graphics.circle(spot.x, spot.y, size * 0.055);
+            graphics.circle(spot.x, spot.y, size * 0.085);
             graphics.fill();
         });
     }
