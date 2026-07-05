@@ -15,26 +15,42 @@ import {
     Vec3,
 } from 'cc';
 import { DiceFace, PlayerState, RoomService, RoomState } from '../model/GameTypes';
-import { DICE_PER_PLAYER } from '../model/GameRules';
-import { LocalRoomService } from '../services/LocalRoomService';
+import { DICE_PER_PLAYER, rollDice } from '../model/GameRules';
+import { CloudRoomService } from '../services/CloudRoomService';
+import { WechatPlatform, LaunchRoomPayload } from '../services/WechatPlatform';
 
 const { ccclass } = _decorator;
 
 const DESIGN_WIDTH = 720;
 const DESIGN_HEIGHT = 1280;
-type EntryMode = 'menu' | 'room';
+const TOP_BAR_HEIGHT = 110;
+const TOP_BAR_MARGIN = 15;
+type EntryMode = 'menu' | 'room' | 'single';
 type RoomMode = 'single' | 'online';
 
 @ccclass('GameRoot')
 export class GameRoot extends Component {
-    private service: RoomService = new LocalRoomService();
+    private service: RoomService | null = null;
+    private unsubscribeRoom: (() => void) | null = null;
+    private platform = new WechatPlatform();
     private state: RoomState | null = null;
     private content: Node | null = null;
     private entryMode: EntryMode = 'menu';
     private roomMode: RoomMode = 'single';
+    private entryMessage = '';
+    private isOnlineStarting = false;
+    private safeTopInset = 0;
+    private topBarBaseX = 0;
+    private topBarBaseY = DESIGN_HEIGHT / 2 - TOP_BAR_MARGIN - TOP_BAR_HEIGHT / 2;
+    private singleDice: DiceFace[] = [];
+    private singleHasRolled = false;
+    private pendingAction = '';
     private selectedQuantity = 1;
     private selectedFace: DiceFace = 2;
     private nodeCache = new Map<string, Node>();
+    private sceneNodePositions = new WeakMap<Node, { x: number; y: number }>();
+    private sceneNodeActive = new WeakMap<Node, boolean>();
+    private sceneLabelLineHeights = new WeakMap<Node, number>();
     private buttonHandlers = new Map<string, () => void>();
     private activeNodeKeys = new Set<string>();
     private playerSeatNodes = new Map<string, Node>();
@@ -51,17 +67,13 @@ export class GameRoot extends Component {
 
     async start(): Promise<void> {
         this.setupCanvas();
+        this.safeTopInset = this.platform.getSafeTopInset(DESIGN_HEIGHT);
         this.content = this.requireChild(this.node, 'RuntimeUI');
         this.cacheSceneNodes(this.content);
-        this.service.subscribe((state) => {
-            this.state = state;
-            this.entryMode = 'room';
-            this.syncSelection();
-            this.render();
-        });
-        const sharedRoomId = this.getLaunchRoomId();
-        if (sharedRoomId) {
-            await this.startRoom('online', sharedRoomId);
+        this.captureEditableLayout();
+        const sharedRoom = this.platform.getLaunchRoomPayload();
+        if (sharedRoom?.roomId) {
+            await this.startOnlineRoom(sharedRoom);
             return;
         }
         this.render();
@@ -98,25 +110,83 @@ export class GameRoot extends Component {
         }
     }
 
-    private async startRoom(mode: RoomMode, roomId?: string): Promise<void> {
-        this.roomMode = mode;
-        this.entryMode = 'room';
-        this.localCupOffsetY = 0;
-        if (roomId) {
-            await this.service.joinRoom(roomId, '我');
-            this.toast(`通过分享加入房间 ${roomId}`);
+    private async startRoom(mode: RoomMode, roomId?: string, joinToken?: string): Promise<void> {
+        if (mode === 'single') {
+            this.startSingleDiceTool();
             return;
         }
-        await this.service.createRoom('我');
-        if (mode === 'online') {
-            this.toast('联网模式：当前使用本地模拟，后续接微信云开发接口。');
+        await this.startOnlineRoom(roomId ? { roomId, joinToken: joinToken || '' } : undefined);
+    }
+
+    private startSingleDiceTool(): void {
+        this.roomMode = 'single';
+        this.entryMode = 'single';
+        this.state = null;
+        this.entryMessage = '';
+        this.singleDice = [];
+        this.singleHasRolled = false;
+        this.localCupOffsetY = 0;
+        this.clearRoomService();
+        this.render();
+    }
+
+    private async startOnlineRoom(shared?: LaunchRoomPayload): Promise<void> {
+        if (this.isOnlineStarting) {
+            return;
+        }
+        this.roomMode = 'online';
+        this.entryMode = 'menu';
+        this.isOnlineStarting = true;
+        this.entryMessage = '正在打开授权，请稍候';
+        this.render();
+        try {
+            this.platform.initCloud();
+            const profile = await this.platform.requestProfile();
+            this.entryMessage = shared?.roomId ? '正在加入房间' : '正在创建房间';
+            this.render();
+            const service = new CloudRoomService(this.platform);
+            this.setRoomService(service);
+            if (shared?.roomId) {
+                await service.joinRoom(shared.roomId, profile, shared.joinToken);
+                this.entryMessage = '';
+                this.toast(`通过分享加入房间 ${shared.roomId}`);
+            } else {
+                await service.createRoom(profile);
+                this.entryMessage = '';
+            }
+            this.isOnlineStarting = false;
+            this.platform.setSharePayload(service.getSharePayload());
+        } catch (error) {
+            console.error('[GameRoot] start online room failed', error);
+            this.clearRoomService();
+            this.entryMode = 'menu';
+            this.isOnlineStarting = false;
+            this.entryMessage = this.errorMessage(error);
+            this.platform.toast(this.entryMessage);
+            this.render();
         }
     }
 
-    private getLaunchRoomId(): string {
-        const wxApi = (globalThis as { wx?: { getLaunchOptionsSync?: () => { query?: Record<string, string> } } }).wx;
-        const query = wxApi?.getLaunchOptionsSync?.().query;
-        return query?.roomId || query?.room || '';
+    private setRoomService(service: RoomService): void {
+        this.clearRoomService();
+        this.service = service;
+        this.unsubscribeRoom = service.subscribe((state) => {
+            this.state = state;
+            this.entryMode = 'room';
+            this.syncSelection();
+            if (this.roomMode === 'online') {
+                this.platform.setSharePayload(service.getSharePayload());
+            }
+            this.render();
+        });
+    }
+
+    private clearRoomService(): void {
+        this.unsubscribeRoom?.();
+        this.unsubscribeRoom = null;
+        (this.service as { dispose?: () => void } | null)?.dispose?.();
+        this.service = null;
+        this.state = null;
     }
 
     private render(): void {
@@ -127,7 +197,11 @@ export class GameRoot extends Component {
         this.activeNodeKeys.clear();
         this.drawBackground(this.content);
         if (this.entryMode === 'menu' || !this.state) {
-            this.drawEntryMenu(this.content);
+            if (this.entryMode === 'single') {
+                this.drawSingleDiceTool(this.content);
+            } else {
+                this.drawEntryMenu(this.content);
+            }
             this.hideUnusedNodes();
             return;
         }
@@ -152,21 +226,68 @@ export class GameRoot extends Component {
     private drawEntryMenu(parent: Node): void {
         this.panel(parent, 'EntryModePanel', 0, 95, 620, 460, new Color(28, 21, 22, 245), new Color(233, 187, 95, 255));
         this.text(parent, 'EntryTitleText', '大话骰', 0, 260, 52, new Color(255, 228, 162, 255), 560);
-        this.text(parent, 'EntryHintText', '选择玩法后创建房间', 0, 198, 27, new Color(238, 211, 166, 255), 560);
-        this.button(parent, 'SingleModeButton', '单机模式', 0, 72, 360, 78, () => void this.startRoom('single'));
-        this.button(parent, 'OnlineModeButton', '联网模式', 0, -42, 360, 78, () => void this.startRoom('online'));
-        this.text(parent, 'OnlineReservedText', '', 0, -82, 20, new Color(218, 201, 168, 255), 540);
+        this.text(parent, 'EntryHintText', this.entryMessage || '选择玩法后创建房间', 0, 198, 27, new Color(238, 211, 166, 255), 560);
+        this.button(parent, 'SingleModeButton', '单机模式', 0, 72, 360, 78, () => void this.startRoom('single'), this.isOnlineStarting);
+        this.button(parent, 'OnlineModeButton', this.isOnlineStarting ? '连接中' : '联网模式', 0, -42, 360, 78, () => void this.startRoom('online'), this.isOnlineStarting);
+        const retryText = this.isOnlineStarting ? '请在微信弹窗中允许头像昵称授权' : (this.entryMessage ? '点击联网模式重试授权' : '');
+        this.text(parent, 'OnlineReservedText', retryText, 0, -102, 20, new Color(218, 201, 168, 255), 540);
+    }
+
+    private drawSingleDiceTool(parent: Node): void {
+        const topBar = this.drawTopBarContainer(parent);
+        this.text(topBar, 'RoomIdText', '单机骰盅', -190, 26, 32, new Color(255, 230, 178, 255), 260);
+        this.text(topBar, 'PhaseText', '线下模式', -185, -14, 24, new Color(245, 206, 135, 255), 300);
+        this.button(topBar, 'BackButton', '返回', 180, 20, 120, 52, () => {
+            this.entryMode = 'menu';
+            this.singleDice = [];
+            this.singleHasRolled = false;
+            this.localCupOffsetY = 0;
+            this.render();
+        });
+        this.text(parent, 'MessageText', this.singleHasRolled ? '上拖骰盅看牌，下拖盖住。' : '点击摇骰生成本机 5 个骰子。', 0, this.messageY(), 24, new Color(255, 238, 203, 255), 640);
+        const center = this.createNode('RollingCenterArea', parent, 0, 80, 560, 360);
+        const isRevealingDice = this.singleHasRolled && this.localCupOffsetY > 24;
+        this.text(center, 'RollingCenterTitleText', this.singleHasRolled ? '上拖骰盅查看自己的牌' : '单机模式：本机一副骰盅', 0, 152, 28, new Color(255, 230, 178, 255), 500);
+        if (isRevealingDice) {
+            this.drawDiceTray(center, 0, -38, 1.1);
+            this.drawDiceRow(center, this.singleDice, 0, -25, 62, 'CenterDiceRow');
+        }
+        const cup = this.drawCup(center, 0, -2 + this.localCupOffsetY, 1.75, 'CenterRollingCup-player-local');
+        this.bindCupDrag(cup);
+        this.text(center, 'CupDragHintText', this.singleHasRolled ? '上拖看牌 · 下拖盖住' : '摇骰前不会展示点数', 0, -146, 22, new Color(218, 201, 168, 255), 500);
+        this.button(parent, 'RollButton', this.isRollingLocal ? '摇骰中' : '摇骰', 0, -570, 230, 62, () => this.rollSingleWithAnimation(), this.isRollingLocal);
     }
 
     private drawTopBar(parent: Node, state: RoomState): void {
-        this.panel(parent, 'TopBar', 0, 570, 660, 110, new Color(42, 20, 20, 165), new Color(202, 154, 74, 175));
-        this.text(parent, 'RoomIdText', `房间 ${state.roomId}`, -190, 596, 32, new Color(255, 230, 178, 255), 260);
-        this.text(parent, 'PhaseText', `${this.phaseLabel(state)} · ${this.roomMode === 'single' ? '单机' : '联网'}`, -185, 556, 24, new Color(245, 206, 135, 255), 300);
-        this.button(parent, 'ShareButton', '分享', 180, 590, 120, 52, () => {
-            const payload = this.service.getSharePayload();
+        const topBar = this.drawTopBarContainer(parent);
+        this.text(topBar, 'RoomIdText', `房间 ${state.roomId}`, -190, 26, 32, new Color(255, 230, 178, 255), 260);
+        this.text(topBar, 'PhaseText', `${this.phaseLabel(state)} · ${this.roomMode === 'single' ? '单机' : '联网'}`, -185, -14, 24, new Color(245, 206, 135, 255), 300);
+        this.button(topBar, 'ShareButton', '分享', 180, 20, 120, 52, () => {
+            const payload = this.service?.getSharePayload();
+            if (!payload) {
+                return;
+            }
+            this.platform.share(payload);
             this.toast(`分享：${payload.title}（${payload.query}）`);
-        });
-        this.text(parent, 'MessageText', '', 0, 508, 24, new Color(255, 238, 203, 255), 640);
+        }, this.roomMode !== 'online');
+        this.text(parent, 'MessageText', this.pendingAction || state.message || '', 0, this.messageY(), 24, new Color(255, 238, 203, 255), 640);
+    }
+
+    private drawTopBarContainer(parent: Node): Node {
+        return this.panel(parent, 'TopBar', this.topBarBaseX, this.topBarY(), 660, TOP_BAR_HEIGHT, new Color(42, 20, 20, 165), new Color(202, 154, 74, 175));
+    }
+
+    private topBarY(): number {
+        const cappedInset = Math.min(110, this.safeTopInset);
+        return this.topBarBaseY - cappedInset;
+    }
+
+    private messageY(): number {
+        return this.topBarY() - 62;
+    }
+
+    private topSeatY(): number {
+        return Math.min(385, this.topBarY() - 138);
     }
 
     private drawTable(parent: Node, state: RoomState): void {
@@ -180,7 +301,8 @@ export class GameRoot extends Component {
 
     private drawBidHistory(parent: Node, state: RoomState): void {
         const history = state.bidHistory.slice(-4).map((bid) => `${this.playerName(state, bid.playerId)} ${bid.quantity}个${bid.face}`).join('  /  ');
-        this.text(parent, 'BidHistoryText', history || '叫牌记录会显示在这里', 0, -105, 22, new Color(234, 215, 168, 255), 560);
+        const waiting = state.waitingPlayers?.length ? `等待下局：${state.waitingPlayers.map((player) => player.name).join('、')}` : '';
+        this.text(parent, 'BidHistoryText', waiting || history || '叫牌记录会显示在这里', 0, -105, 22, new Color(234, 215, 168, 255), 560);
     }
 
     private drawPlayers(parent: Node, state: RoomState): void {
@@ -200,13 +322,14 @@ export class GameRoot extends Component {
 
     private visualSeatPosition(player: PlayerState, localSeatIndex: number, playerCount: number): { x: number; y: number } {
         const relativeSeat = this.relativeSeat(player.seatIndex, localSeatIndex, playerCount);
+        const topSeatY = this.topSeatY();
         const layouts: Record<number, { x: number; y: number }[]> = {
             1: [{ x: 0, y: -330 }],
-            2: [{ x: 0, y: -330 }, { x: 0, y: 385 }],
+            2: [{ x: 0, y: -330 }, { x: 0, y: topSeatY }],
             3: [{ x: 0, y: -330 }, { x: -240, y: 290 }, { x: 240, y: 290 }],
-            4: [{ x: 0, y: -330 }, { x: -240, y: 290 }, { x: 0, y: 385 }, { x: 240, y: 290 }],
+            4: [{ x: 0, y: -330 }, { x: -240, y: 290 }, { x: 0, y: topSeatY }, { x: 240, y: 290 }],
             5: [{ x: 0, y: -330 }, { x: -250, y: 80 }, { x: -240, y: 290 }, { x: 240, y: 290 }, { x: 250, y: 80 }],
-            6: [{ x: 0, y: -330 }, { x: -250, y: 80 }, { x: -240, y: 290 }, { x: 0, y: 385 }, { x: 240, y: 290 }, { x: 250, y: 80 }],
+            6: [{ x: 0, y: -330 }, { x: -250, y: 80 }, { x: -240, y: 290 }, { x: 0, y: topSeatY }, { x: 240, y: 290 }, { x: 250, y: 80 }],
         };
         const positions = layouts[Math.max(1, Math.min(6, playerCount))] || layouts[6];
         return positions[relativeSeat] || positions[0];
@@ -252,23 +375,25 @@ export class GameRoot extends Component {
             return;
         }
         if (state.phase === 'lobby') {
-            this.button(parent, 'ReadyButton', local.isReady ? '已准备' : '准备', -115, -570, 190, 62, () => void this.service.ready(local.id), local.isReady);
-            this.button(parent, 'MockJoinButton', '模拟加入', 115, -570, 190, 62, () => this.toast('本地默认已加入 4 人房'));
+            const waitingForPlayers = state.players.length < 2 && local.isReady;
+            const readyLabel = this.pendingAction ? '处理中' : local.isReady ? '已准备' : '准备';
+            this.button(parent, 'ReadyButton', readyLabel, -115, -570, 190, 62, () => this.runRoomAction('正在准备', () => this.service?.ready()), local.isReady || !!this.pendingAction);
+            this.button(parent, 'MockJoinButton', waitingForPlayers ? '等好友' : state.waitingPlayers?.length ? '下局有人' : '等好友', 115, -570, 190, 62, () => this.toast(state.waitingPlayers?.length ? '等待玩家会在下一局加入' : '点击右上角分享给好友'), true);
             return;
         }
         if (state.phase === 'rolling') {
-            this.button(parent, 'RollButton', this.isRollingLocal ? '摇骰中' : local.hasRolled ? '已摇骰' : '摇骰', 0, -570, 230, 62, () => this.rollLocalWithAnimation(local.id), local.hasRolled || this.isRollingLocal);
+            this.button(parent, 'RollButton', this.isRollingLocal ? '摇骰中' : local.hasRolled ? '已摇骰' : '摇骰', 0, -570, 230, 62, () => this.rollLocalWithAnimation(), local.hasRolled || this.isRollingLocal || !!this.pendingAction);
             return;
         }
         if (state.phase === 'bidding') {
             const isMyTurn = state.currentTurnPlayerId === local.id;
             this.drawBidPicker(parent, isMyTurn);
-            this.button(parent, 'BidActionButton', '叫牌', -120, -570, 190, 62, () => void this.service.bid(local.id, this.selectedQuantity, this.selectedFace), !isMyTurn);
-            this.button(parent, 'OpenActionButton', '开', 120, -570, 190, 62, () => void this.service.open(local.id), !isMyTurn || !state.lastBid);
+            this.button(parent, 'BidActionButton', this.pendingAction ? '处理中' : '叫牌', -120, -570, 190, 62, () => this.runRoomAction('正在叫牌', () => this.service?.bid(this.selectedQuantity, this.selectedFace)), !isMyTurn || !!this.pendingAction);
+            this.button(parent, 'OpenActionButton', this.pendingAction ? '处理中' : '开', 120, -570, 190, 62, () => this.runRoomAction('正在开牌', () => this.service?.open()), !isMyTurn || !state.lastBid || !!this.pendingAction);
             return;
         }
         if (state.phase === 'settlement') {
-            this.button(parent, 'RestartButton', '再来一局', 0, -570, 240, 62, () => void this.service.restart());
+            this.button(parent, 'RestartButton', this.pendingAction ? '处理中' : state.canRestart === false ? '等房主重开' : '再来一局', 0, -570, 240, 62, () => this.runRoomAction('正在开始下一局', () => this.service?.restart()), state.canRestart === false || !!this.pendingAction);
         }
     }
 
@@ -445,7 +570,7 @@ export class GameRoot extends Component {
             throw new Error(`${node.name} is missing Button. Run npm run generate:scene first.`);
         }
         if (!this.buttonHandlers.has(node.name)) {
-            node.on(Node.EventType.TOUCH_END, (_event: EventTouch) => {
+            node.on(Button.EventType.CLICK, () => {
                 const handler = this.buttonHandlers.get(node.name);
                 if (handler) {
                     handler();
@@ -484,7 +609,7 @@ export class GameRoot extends Component {
         }
         label.string = value;
         label.fontSize = fontSize;
-        label.lineHeight = fontSize + 7;
+        label.lineHeight = this.sceneLabelLineHeight(node) ?? fontSize + 7;
         label.color = color;
         label.horizontalAlign = 1;
         label.verticalAlign = 1;
@@ -504,7 +629,7 @@ export class GameRoot extends Component {
             this.nodeCache.set(key, node);
         }
         this.activeNodeKeys.add(key);
-        node.active = true;
+        node.active = !this.shouldKeepSceneHidden(node);
         const editorPreview = node.getChildByName('EditorPreview');
         if (editorPreview) {
             editorPreview.active = false;
@@ -513,7 +638,8 @@ export class GameRoot extends Component {
             node.parent = parent;
         }
         node.setSiblingIndex(parent.children.length - 1);
-        node.setPosition(new Vec3(x, y, 0));
+        const position = this.editableScenePosition(node, parent, x, y);
+        node.setPosition(new Vec3(position.x, position.y, 0));
         node.layer = parent.layer;
         const transform = node.getComponent(UITransform);
         if (!transform) {
@@ -521,6 +647,26 @@ export class GameRoot extends Component {
         }
         transform.setContentSize(width, height);
         return node;
+    }
+
+    private captureEditableLayout(): void {
+        const topBar = this.content?.getChildByName('TopBar');
+        if (!topBar) {
+            return;
+        }
+        this.topBarBaseX = topBar.position.x;
+        this.topBarBaseY = topBar.position.y;
+    }
+
+    private editableScenePosition(node: Node, parent: Node, x: number, y: number): { x: number; y: number } {
+        const scenePosition = this.sceneNodePositions.get(node);
+        if (node.name === 'TopBar') {
+            return { x: this.topBarBaseX, y };
+        }
+        if (scenePosition) {
+            return scenePosition;
+        }
+        return { x, y };
     }
 
     private getPlayerSeat(parent: Node, player: PlayerState, x: number, y: number): Node {
@@ -552,8 +698,25 @@ export class GameRoot extends Component {
     private cacheSceneNodes(parent: Node): void {
         parent.children.forEach((child) => {
             this.nodeCache.set(this.nodeKey(parent, child.name, 0, 0, 0, 0), child);
+            this.sceneNodePositions.set(child, { x: child.position.x, y: child.position.y });
+            this.sceneNodeActive.set(child, child.active);
+            const label = child.getComponent(Label);
+            if (label) {
+                this.sceneLabelLineHeights.set(child, label.lineHeight);
+            }
             this.cacheSceneNodes(child);
         });
+    }
+
+    private shouldKeepSceneHidden(node: Node): boolean {
+        return node.name === 'MessageText' && this.sceneNodeActive.get(node) === false;
+    }
+
+    private sceneLabelLineHeight(node: Node): number | undefined {
+        if (node.name !== 'MessageText') {
+            return undefined;
+        }
+        return this.sceneLabelLineHeights.get(node);
     }
 
     private requireChild(parent: Node, name: string): Node {
@@ -610,8 +773,9 @@ export class GameRoot extends Component {
         });
     }
 
-    private rollLocalWithAnimation(playerId: string): void {
-        if (this.isRollingLocal) {
+    private rollLocalWithAnimation(): void {
+        const playerId = this.state?.localPlayerId || 'player-local';
+        if (this.isRollingLocal || this.pendingAction) {
             return;
         }
         this.localCupOffsetY = 0;
@@ -622,7 +786,7 @@ export class GameRoot extends Component {
             this.render();
             this.scheduleOnce(() => {
                 this.isRollingLocal = false;
-                void this.service.roll(playerId);
+                this.runRoomAction('正在同步骰子', () => this.service?.roll());
             }, 0.8);
             return;
         }
@@ -630,8 +794,57 @@ export class GameRoot extends Component {
         this.render();
         this.playStrongShake(node, () => {
             this.isRollingLocal = false;
-            void this.service.roll(playerId);
+            this.runRoomAction('正在同步骰子', () => this.service?.roll());
         });
+    }
+
+    private runRoomAction(message: string, action: () => Promise<void> | void | undefined): void {
+        if (this.pendingAction) {
+            return;
+        }
+        let result: Promise<void> | void | undefined;
+        try {
+            result = action();
+        } catch (error) {
+            console.error('[GameRoot] room action failed', error);
+            this.toast(this.errorMessage(error));
+            return;
+        }
+        if (!result) {
+            return;
+        }
+        this.pendingAction = message;
+        this.render();
+        result
+            .catch((error) => {
+                console.error('[GameRoot] room action failed', error);
+                this.toast(this.errorMessage(error));
+            })
+            .finally(() => {
+                this.pendingAction = '';
+                this.render();
+            });
+    }
+
+    private rollSingleWithAnimation(): void {
+        if (this.isRollingLocal) {
+            return;
+        }
+        this.localCupOffsetY = 0;
+        this.isRollingLocal = true;
+        this.render();
+        const node = this.findNodeBySafeName('CenterRollingCup-player-local');
+        const finish = () => {
+            this.isRollingLocal = false;
+            this.singleDice = rollDice(DICE_PER_PLAYER);
+            this.singleHasRolled = true;
+            this.render();
+        };
+        if (!node) {
+            this.scheduleOnce(finish, 0.8);
+            return;
+        }
+        this.playStrongShake(node, finish);
     }
 
     private startIdleShake(node: Node): void {
@@ -780,6 +993,46 @@ export class GameRoot extends Component {
         if (this.state) {
             this.state.message = message;
             this.render();
+            return;
         }
+        this.entryMessage = message;
+        this.render();
+    }
+
+    private errorMessage(error: unknown): string {
+        if (error instanceof Error) {
+            return error.message;
+        }
+        if (typeof error === 'object' && error) {
+            const detail = error as { errMsg?: unknown; message?: unknown; errno?: unknown; code?: unknown; error?: unknown; detail?: unknown };
+            const nested = detail.error || detail.detail;
+            if (nested && nested !== error) {
+                const nestedMessage = this.errorMessage(nested);
+                if (nestedMessage && nestedMessage !== '未知错误') {
+                    return nestedMessage;
+                }
+            }
+            const message = detail.errMsg || detail.message;
+            if (message) {
+                const text = String(message);
+                if (text.includes('announce your privacy usage')) {
+                    return '微信后台还没声明头像昵称用途，请先到小程序后台完善用户隐私保护指引。';
+                }
+                if (text.includes('official popup') || text.includes('onNeedPrivacyAuthorization')) {
+                    return '需要先同意微信隐私授权后才能获取头像昵称，请在隐私弹窗中同意后重试。';
+                }
+                return text;
+            }
+            const code = detail.errno || detail.code;
+            if (code) {
+                return `操作失败：${String(code)}`;
+            }
+            try {
+                return JSON.stringify(error);
+            } catch (_error) {
+                return '操作失败，请重试。';
+            }
+        }
+        return String(error || '未知错误');
     }
 }

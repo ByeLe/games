@@ -371,12 +371,13 @@ function buildScene() {
   text(runtime, 'EntryHintText', 0, 198, 560, 44, '选择玩法后创建房间', 27, color(238, 211, 166));
   buttonNode(runtime, 'SingleModeButton', 0, 72, 360, 78, '单机模式');
   buttonNode(runtime, 'OnlineModeButton', 0, -42, 360, 78, '联网模式');
-  text(runtime, 'OnlineReservedText', 0, -82, 540, 40, '', 20, color(218, 201, 168));
+  text(runtime, 'OnlineReservedText', 0, -102, 540, 40, '', 20, color(218, 201, 168));
 
-  panel(runtime, 'TopBar', 0, 570, 660, 110, color(42, 20, 20, 165));
-  text(runtime, 'RoomIdText', -190, 596, 260, 48, '房间 ----', 32, color(255, 230, 178));
-  text(runtime, 'PhaseText', -185, 556, 300, 40, '大厅 · 单机', 24, color(245, 206, 135));
-  buttonNode(runtime, 'ShareButton', 180, 590, 120, 52, '分享');
+  const topBar = panel(runtime, 'TopBar', 0, 570, 660, 110, color(42, 20, 20, 165));
+  text(topBar, 'RoomIdText', -190, 26, 260, 48, '房间 ----', 32, color(255, 230, 178));
+  text(topBar, 'PhaseText', -185, -14, 300, 40, '大厅 · 单机', 24, color(245, 206, 135));
+  buttonNode(topBar, 'ShareButton', 180, 20, 120, 52, '分享');
+  buttonNode(topBar, 'BackButton', 180, 20, 120, 52, '返回');
   text(runtime, 'MessageText', 0, 508, 640, 42, '', 24, color(255, 238, 203));
 
   panel(runtime, 'Table', 0, 120, 590, 480, color(22, 18, 18, 0));

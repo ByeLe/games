@@ -1,4 +1,4 @@
-import { Bid, DiceFace, PlayerId, PlayerState, RoomListener, RoomService, RoomState, SharePayload } from '../model/GameTypes';
+import { Bid, DiceFace, PlayerId, PlayerProfile, PlayerState, RoomListener, RoomService, RoomState, SharePayload } from '../model/GameTypes';
 import { DICE_PER_PLAYER, MAX_PLAYERS, MIN_PLAYERS, isLegalBid, nextPlayerId, randomLegalBid, rollDice, settleRound } from '../model/GameRules';
 
 const AI_NAMES = ['阿豪', '小青', '老陈', '豆豆', '阿峰'];
@@ -8,10 +8,11 @@ export class LocalRoomService implements RoomService {
     private listeners: RoomListener[] = [];
     private autoTimer = -1;
 
-    async createRoom(localName: string): Promise<RoomState> {
+    async createRoom(profile: PlayerProfile): Promise<RoomState> {
         const localPlayer: PlayerState = {
             id: 'player-local',
-            name: localName || '我',
+            name: profile.name || '我',
+            avatarUrl: profile.avatarUrl,
             seatIndex: this.nextSeatIndex([]),
             isHost: true,
             isLocal: true,
@@ -45,9 +46,9 @@ export class LocalRoomService implements RoomService {
         return this.cloneState();
     }
 
-    async joinRoom(roomId: string, playerName: string): Promise<RoomState> {
+    async joinRoom(roomId: string, profile: PlayerProfile): Promise<RoomState> {
         if (!this.state) {
-            await this.createRoom(playerName || '我');
+            await this.createRoom(profile);
         }
         this.ensureState().roomId = roomId || this.ensureState().roomId;
         this.ensureState().message = `已加入房间 ${this.ensureState().roomId}`;
@@ -64,11 +65,12 @@ export class LocalRoomService implements RoomService {
         };
     }
 
-    async ready(playerId: PlayerId): Promise<void> {
+    async ready(): Promise<void> {
         const state = this.ensureState();
         if (state.phase !== 'lobby') {
             return;
         }
+        const playerId = state.localPlayerId;
         const player = this.getPlayer(playerId);
         player.isReady = true;
         state.message = `${player.name} 已准备`;
@@ -80,11 +82,12 @@ export class LocalRoomService implements RoomService {
         this.scheduleAi();
     }
 
-    async roll(playerId: PlayerId): Promise<void> {
+    async roll(): Promise<void> {
         const state = this.ensureState();
         if (state.phase !== 'rolling') {
             return;
         }
+        const playerId = state.localPlayerId;
         const player = this.getPlayer(playerId);
         if (player.hasRolled) {
             return;
@@ -101,8 +104,9 @@ export class LocalRoomService implements RoomService {
         this.scheduleAi();
     }
 
-    async bid(playerId: PlayerId, quantity: number, face: DiceFace): Promise<void> {
+    async bid(quantity: number, face: DiceFace): Promise<void> {
         const state = this.ensureState();
+        const playerId = state.localPlayerId;
         if (state.phase !== 'bidding' || state.currentTurnPlayerId !== playerId) {
             return;
         }
@@ -124,8 +128,9 @@ export class LocalRoomService implements RoomService {
         this.scheduleAi();
     }
 
-    async open(playerId: PlayerId): Promise<void> {
+    async open(): Promise<void> {
         const state = this.ensureState();
+        const playerId = state.localPlayerId;
         if (state.phase !== 'bidding' || state.currentTurnPlayerId !== playerId || !state.lastBid) {
             return;
         }
@@ -212,14 +217,14 @@ export class LocalRoomService implements RoomService {
         if (state.phase === 'lobby') {
             const nextAi = state.players.find((player) => !player.isLocal && !player.isReady);
             if (nextAi) {
-                await this.ready(nextAi.id);
+                await this.readyAi(nextAi.id);
             }
             return;
         }
         if (state.phase === 'rolling') {
             const nextAi = state.players.find((player) => !player.isLocal && !player.hasRolled);
             if (nextAi) {
-                await this.roll(nextAi.id);
+                await this.rollAi(nextAi.id);
             }
             return;
         }
@@ -228,13 +233,41 @@ export class LocalRoomService implements RoomService {
             if (!player.isLocal) {
                 const shouldOpen = !!state.lastBid && state.bidHistory.length >= 2 && Math.random() < 0.28;
                 if (shouldOpen) {
-                    await this.open(player.id);
+                    await this.openAi(player.id);
                 } else {
                     const bid = randomLegalBid(state.lastBid, player.id, state.players.length * DICE_PER_PLAYER);
-                    await this.bid(player.id, bid.quantity, bid.face);
+                    await this.bidAi(player.id, bid.quantity, bid.face);
                 }
             }
         }
+    }
+
+    private async readyAi(playerId: PlayerId): Promise<void> {
+        const originalLocalId = this.ensureState().localPlayerId;
+        this.ensureState().localPlayerId = playerId;
+        await this.ready();
+        this.ensureState().localPlayerId = originalLocalId;
+    }
+
+    private async rollAi(playerId: PlayerId): Promise<void> {
+        const originalLocalId = this.ensureState().localPlayerId;
+        this.ensureState().localPlayerId = playerId;
+        await this.roll();
+        this.ensureState().localPlayerId = originalLocalId;
+    }
+
+    private async bidAi(playerId: PlayerId, quantity: number, face: DiceFace): Promise<void> {
+        const originalLocalId = this.ensureState().localPlayerId;
+        this.ensureState().localPlayerId = playerId;
+        await this.bid(quantity, face);
+        this.ensureState().localPlayerId = originalLocalId;
+    }
+
+    private async openAi(playerId: PlayerId): Promise<void> {
+        const originalLocalId = this.ensureState().localPlayerId;
+        this.ensureState().localPlayerId = playerId;
+        await this.open();
+        this.ensureState().localPlayerId = originalLocalId;
     }
 
     private getPlayer(playerId: PlayerId): PlayerState {
