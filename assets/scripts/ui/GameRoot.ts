@@ -1,12 +1,17 @@
 import {
     _decorator,
+    assetManager,
     Button,
     Canvas,
     Color,
     Component,
     Graphics,
+    ImageAsset,
     Label,
     Node,
+    Sprite,
+    SpriteFrame,
+    Texture2D,
     Tween,
     instantiate,
     tween,
@@ -64,6 +69,8 @@ export class GameRoot extends Component {
     private settlementDragStartY = 0;
     private settlementScrollStartY = 0;
     private scrollBoundNodes = new Set<string>();
+    private avatarFrames = new Map<string, SpriteFrame>();
+    private loadingAvatarUrls = new Set<string>();
 
     async start(): Promise<void> {
         this.setupCanvas();
@@ -539,6 +546,12 @@ export class GameRoot extends Component {
 
     private drawAvatar(parent: Node, player: PlayerState, x: number, y: number, size: number, name = `Avatar-${player.id}`): void {
         const node = this.createNode(name, parent, x, y, size, size);
+        const sprite = this.avatarSprite(node);
+        const avatarFrame = player.avatarUrl ? this.avatarFrames.get(player.avatarUrl) : null;
+        sprite.spriteFrame = avatarFrame || null;
+        if (!avatarFrame && player.avatarUrl) {
+            this.loadAvatarFrame(player.avatarUrl);
+        }
         const graphics = this.graphics(node);
         graphics.clear();
         const avatarColors = [
@@ -549,18 +562,52 @@ export class GameRoot extends Component {
             new Color(229, 111, 97, 255),
             new Color(114, 132, 219, 255),
         ];
-        graphics.fillColor = avatarColors[player.seatIndex % avatarColors.length];
-        graphics.circle(0, 0, size / 2);
-        graphics.fill();
+        if (!avatarFrame) {
+            graphics.fillColor = avatarColors[player.seatIndex % avatarColors.length];
+            graphics.circle(0, 0, size / 2);
+            graphics.fill();
+        }
         graphics.strokeColor = player.isLocal ? new Color(255, 235, 165, 255) : new Color(92, 52, 43, 255);
         graphics.lineWidth = Math.max(2, size * 0.08);
         graphics.circle(0, 0, size / 2);
         graphics.stroke();
-        graphics.fillColor = new Color(76, 38, 36, 255);
-        graphics.circle(0, size * 0.12, size * 0.15);
-        graphics.fill();
-        graphics.roundRect(-size * 0.24, -size * 0.26, size * 0.48, size * 0.28, size * 0.12);
-        graphics.fill();
+        if (!avatarFrame) {
+            graphics.fillColor = new Color(76, 38, 36, 255);
+            graphics.circle(0, size * 0.12, size * 0.15);
+            graphics.fill();
+            graphics.roundRect(-size * 0.24, -size * 0.26, size * 0.48, size * 0.28, size * 0.12);
+            graphics.fill();
+        }
+    }
+
+    private avatarSprite(node: Node): Sprite {
+        let sprite = node.getComponent(Sprite);
+        if (!sprite) {
+            sprite = node.addComponent(Sprite);
+            sprite.type = Sprite.Type.SIMPLE;
+            sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        }
+        return sprite;
+    }
+
+    private loadAvatarFrame(url: string): void {
+        if (this.avatarFrames.has(url) || this.loadingAvatarUrls.has(url)) {
+            return;
+        }
+        this.loadingAvatarUrls.add(url);
+        assetManager.loadRemote<ImageAsset>(url, { ext: '.png' }, (error, imageAsset) => {
+            this.loadingAvatarUrls.delete(url);
+            if (error || !imageAsset) {
+                console.error('[GameRoot] load avatar failed', url, error);
+                return;
+            }
+            const texture = new Texture2D();
+            texture.image = imageAsset;
+            const spriteFrame = new SpriteFrame();
+            spriteFrame.texture = texture;
+            this.avatarFrames.set(url, spriteFrame);
+            this.render();
+        });
     }
 
     private button(parent: Node, name: string, label: string, x: number, y: number, width: number, height: number, onClick: () => void, disabled = false): Node {
