@@ -21,15 +21,14 @@
 已写入：
 
 - `AppID`: `wx79916d4daf5d3ccd`
-- `envId`: `cloudbase-d3g1ll45q9cd4cc90`
+- `envId`: `prod-d5gy1e16k12f95ec6`
 
 实时服务目录在 `cloudrun/room-server`，不使用云数据库、不保存对局记录。房间状态只存在云托管进程内存中，服务重启、发布或 4 小时无操作后会自动结束房间。
 
-1. 在环境 `cloudbase-d3g1ll45q9cd4cc90` 的云托管中新建 Node.js 服务，使用 [云托管部署说明](cloudrun/room-server/README.md)。
+1. 在环境 `prod-d5gy1e16k12f95ec6` 使用云托管服务 `koa-0itt`，使用 [云托管部署说明](cloudrun/room-server/README.md)。
 2. 将服务设置为 **最小实例 = 最大实例 = 1**；无数据库设计下不得扩容为多个实例。
 3. 在云托管环境变量配置 `WECHAT_APP_ID`、`WECHAT_APP_SECRET`。
-4. 开通服务公网访问，把 `wss://<服务域名>/ws` 配置到小游戏后台的 Socket 合法域名。
-5. 将同一地址写入 `assets/scripts/services/WechatCloudConfig.ts` 的 `ROOM_WEBSOCKET_URL`。
+4. 小游戏通过 `wx.cloud.connectContainer({ service: 'koa-0itt', path: '/ws' })` 连接，不需要配置公网 WebSocket 域名。
 
 分享 query 会包含展示房号 `roomId` 和高熵 `joinToken`。客户端不能只凭短房号加入，必须由云函数校验 token。
 
