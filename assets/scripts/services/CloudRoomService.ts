@@ -104,8 +104,7 @@ export class CloudRoomService implements RoomService {
     }
 
     private async authenticate(): Promise<void> {
-        const code = await this.platform.login();
-        const auth = await this.request<{ playerId: string }>('auth', { code });
+        const auth = await this.request<{ playerId: string }>('auth', {});
         this.localPlayerId = auth.playerId;
         if (this.roomId && this.joinToken) {
             const room = await this.request<ServerRoom>('resume', { roomId: this.roomId, joinToken: this.joinToken, profile: this.profile });
