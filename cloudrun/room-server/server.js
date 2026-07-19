@@ -5,8 +5,6 @@ const { WebSocketServer } = require('ws');
 const { createRoom, joinRoom, ready, roll, bid, open, restart, toProjection } = require(process.env.ROOM_CORE_PATH || '../../cloudfunctions/room/roomCore');
 
 const PORT = Number(process.env.PORT || 80);
-const APP_ID = process.env.WECHAT_APP_ID;
-const APP_SECRET = process.env.WECHAT_APP_SECRET;
 const ROOM_TTL_MS = 4 * 60 * 60 * 1000;
 const rooms = new Map(); // 明确的无持久化设计：实例重启后房间自动失效。
 
@@ -32,8 +30,10 @@ app.use(async (ctx) => {
 const server = http.createServer(app.callback());
 const wss = new WebSocketServer({ server, path: '/ws' });
 
-wss.on('connection', (socket) => {
-  socket.playerId = '';
+wss.on('connection', (socket, request) => {
+  // connectContainer 会由微信云托管注入可信身份，避免服务端再出网请求
+  // code2session（该请求在受限出网环境可能失败）。
+  socket.playerId = String(request.headers['x-wx-openid'] || '');
   socket.roomId = '';
   socket.on('message', async (raw) => {
     let message;
@@ -51,7 +51,7 @@ wss.on('connection', (socket) => {
 async function dispatch(socket, message) {
   if (message.type === 'ping') return { now: Date.now() };
   if (message.type === 'auth') {
-    socket.playerId = await exchangeCode(message.code);
+    if (!socket.playerId) throw new Error('未获取到微信身份，请通过云托管 connectContainer 连接。');
     return { playerId: socket.playerId };
   }
   if (!socket.playerId) throw new Error('请先登录。');
@@ -96,16 +96,6 @@ function token() { return crypto.randomBytes(24).toString('base64url'); }
 function hash(value) { return crypto.createHash('sha256').update(value).digest('hex'); }
 function reply(socket, requestId, ok, data = null, error = '') { send(socket, { type: 'response', requestId, ok, data, error }); }
 function send(socket, data) { if (socket.readyState === 1) socket.send(JSON.stringify(data)); }
-
-async function exchangeCode(code) {
-  if (!code) throw new Error('缺少微信登录凭证。');
-  if (!APP_ID || !APP_SECRET) throw new Error('服务端未配置 WECHAT_APP_ID 和 WECHAT_APP_SECRET。');
-  const url = new URL('https://api.weixin.qq.com/sns/jscode2session');
-  url.search = new URLSearchParams({ appid: APP_ID, secret: APP_SECRET, js_code: code, grant_type: 'authorization_code' });
-  const response = await fetch(url); const result = await response.json();
-  if (!result.openid) throw new Error(`微信登录失败：${result.errmsg || result.errcode || '未知错误'}`);
-  return result.openid;
-}
 
 setInterval(() => { const cutoff = Date.now() - ROOM_TTL_MS; for (const [id, entry] of rooms) if (entry.touchedAt < cutoff) rooms.delete(id); }, 10 * 60 * 1000).unref();
 server.listen(PORT, () => console.log(`room websocket server listening on ${PORT}`));
