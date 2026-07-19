@@ -27,6 +27,7 @@ export class CloudRoomService implements RoomService {
     private pending = new Map<string, Pending>();
     private listeners: RoomListener[] = [];
     private reconnectTimer: number | null = null;
+    private heartbeatTimer: number | null = null;
     private reconnectAttempt = 0;
     private disposed = false;
 
@@ -70,6 +71,7 @@ export class CloudRoomService implements RoomService {
     dispose(): void {
         this.disposed = true;
         if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
+        this.stopHeartbeat();
         this.rejectPending(new Error('房间连接已关闭。'));
         this.task?.close({ reason: 'leave room' });
         this.task = null;
@@ -91,7 +93,7 @@ export class CloudRoomService implements RoomService {
             wxApi.cloud?.connectContainer?.({ service: ROOM_CONTAINER_SERVICE, path: '/ws' })
                 .then(({ socketTask: task }) => {
                     this.task = task;
-                    task.onOpen(() => void this.authenticate().then(resolve).catch(reject));
+                    task.onOpen(() => void this.authenticate().then(() => { this.startHeartbeat(); resolve(); }).catch(reject));
                     task.onMessage((event) => this.handleMessage(event.data));
                     task.onError((error) => console.error('[RoomSocket] error', error));
                     task.onClose(() => this.handleClose());
@@ -132,10 +134,26 @@ export class CloudRoomService implements RoomService {
 
     private handleClose(): void {
         this.task = null;
+        this.stopHeartbeat();
         this.rejectPending(new Error('连接已断开，正在重连。'));
         if (this.disposed) return;
         const delay = Math.min(1000 * (2 ** this.reconnectAttempt++), 10000);
         this.reconnectTimer = setTimeout(() => { this.reconnectTimer = null; void this.ensureConnected().catch(() => this.handleClose()); }, delay) as unknown as number;
+    }
+
+    private startHeartbeat(): void {
+        this.stopHeartbeat();
+        // 云托管网关会回收长期空闲的 WebSocket，定时心跳维持连接。
+        this.heartbeatTimer = setInterval(() => {
+            this.task?.send({ data: JSON.stringify({ type: 'ping' }) });
+        }, 10000) as unknown as number;
+    }
+
+    private stopHeartbeat(): void {
+        if (this.heartbeatTimer !== null) {
+            clearInterval(this.heartbeatTimer);
+            this.heartbeatTimer = null;
+        }
     }
 
     private applyRoom(room: ServerRoom): void {

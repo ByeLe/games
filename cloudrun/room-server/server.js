@@ -49,6 +49,7 @@ wss.on('connection', (socket) => {
 });
 
 async function dispatch(socket, message) {
+  if (message.type === 'ping') return { now: Date.now() };
   if (message.type === 'auth') {
     socket.playerId = await exchangeCode(message.code);
     return { playerId: socket.playerId };
