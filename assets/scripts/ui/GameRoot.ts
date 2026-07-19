@@ -1,12 +1,17 @@
 import {
     _decorator,
+    assetManager,
     Button,
     Canvas,
     Color,
     Component,
     Graphics,
+    ImageAsset,
     Label,
+    Mask,
     Node,
+    Sprite,
+    SpriteFrame,
     Tween,
     instantiate,
     tween,
@@ -15,26 +20,42 @@ import {
     Vec3,
 } from 'cc';
 import { DiceFace, PlayerState, RoomService, RoomState } from '../model/GameTypes';
-import { DICE_PER_PLAYER } from '../model/GameRules';
-import { LocalRoomService } from '../services/LocalRoomService';
+import { DICE_PER_PLAYER, rollDice } from '../model/GameRules';
+import { CloudRoomService } from '../services/CloudRoomService';
+import { WechatPlatform, LaunchRoomPayload } from '../services/WechatPlatform';
 
 const { ccclass } = _decorator;
 
 const DESIGN_WIDTH = 720;
 const DESIGN_HEIGHT = 1280;
-type EntryMode = 'menu' | 'room';
+const TOP_BAR_HEIGHT = 110;
+const TOP_BAR_MARGIN = 15;
+type EntryMode = 'menu' | 'room' | 'single';
 type RoomMode = 'single' | 'online';
 
 @ccclass('GameRoot')
 export class GameRoot extends Component {
-    private service: RoomService = new LocalRoomService();
+    private service: RoomService | null = null;
+    private unsubscribeRoom: (() => void) | null = null;
+    private platform = new WechatPlatform();
     private state: RoomState | null = null;
     private content: Node | null = null;
     private entryMode: EntryMode = 'menu';
     private roomMode: RoomMode = 'single';
+    private entryMessage = '';
+    private isOnlineStarting = false;
+    private safeTopInset = 0;
+    private topBarBaseX = 0;
+    private topBarBaseY = DESIGN_HEIGHT / 2 - TOP_BAR_MARGIN - TOP_BAR_HEIGHT / 2;
+    private singleDice: DiceFace[] = [];
+    private singleHasRolled = false;
+    private pendingAction = '';
     private selectedQuantity = 1;
     private selectedFace: DiceFace = 2;
     private nodeCache = new Map<string, Node>();
+    private sceneNodePositions = new WeakMap<Node, { x: number; y: number }>();
+    private sceneNodeActive = new WeakMap<Node, boolean>();
+    private sceneLabelLineHeights = new WeakMap<Node, number>();
     private buttonHandlers = new Map<string, () => void>();
     private activeNodeKeys = new Set<string>();
     private playerSeatNodes = new Map<string, Node>();
@@ -48,20 +69,18 @@ export class GameRoot extends Component {
     private settlementDragStartY = 0;
     private settlementScrollStartY = 0;
     private scrollBoundNodes = new Set<string>();
+    private avatarFrames = new Map<string, SpriteFrame>();
+    private loadingAvatarUrls = new Set<string>();
 
     async start(): Promise<void> {
         this.setupCanvas();
+        this.safeTopInset = this.platform.getSafeTopInset(DESIGN_HEIGHT);
         this.content = this.requireChild(this.node, 'RuntimeUI');
         this.cacheSceneNodes(this.content);
-        this.service.subscribe((state) => {
-            this.state = state;
-            this.entryMode = 'room';
-            this.syncSelection();
-            this.render();
-        });
-        const sharedRoomId = this.getLaunchRoomId();
-        if (sharedRoomId) {
-            await this.startRoom('online', sharedRoomId);
+        this.captureEditableLayout();
+        const sharedRoom = this.platform.getLaunchRoomPayload();
+        if (sharedRoom?.roomId) {
+            await this.startOnlineRoom(sharedRoom);
             return;
         }
         this.render();
@@ -98,25 +117,83 @@ export class GameRoot extends Component {
         }
     }
 
-    private async startRoom(mode: RoomMode, roomId?: string): Promise<void> {
-        this.roomMode = mode;
-        this.entryMode = 'room';
-        this.localCupOffsetY = 0;
-        if (roomId) {
-            await this.service.joinRoom(roomId, '我');
-            this.toast(`通过分享加入房间 ${roomId}`);
+    private async startRoom(mode: RoomMode, roomId?: string, joinToken?: string): Promise<void> {
+        if (mode === 'single') {
+            this.startSingleDiceTool();
             return;
         }
-        await this.service.createRoom('我');
-        if (mode === 'online') {
-            this.toast('联网模式：当前使用本地模拟，后续接微信云开发接口。');
+        await this.startOnlineRoom(roomId ? { roomId, joinToken: joinToken || '' } : undefined);
+    }
+
+    private startSingleDiceTool(): void {
+        this.roomMode = 'single';
+        this.entryMode = 'single';
+        this.state = null;
+        this.entryMessage = '';
+        this.singleDice = [];
+        this.singleHasRolled = false;
+        this.localCupOffsetY = 0;
+        this.clearRoomService();
+        this.render();
+    }
+
+    private async startOnlineRoom(shared?: LaunchRoomPayload): Promise<void> {
+        if (this.isOnlineStarting) {
+            return;
+        }
+        this.roomMode = 'online';
+        this.entryMode = 'menu';
+        this.isOnlineStarting = true;
+        this.entryMessage = '正在打开授权，请稍候';
+        this.render();
+        try {
+            this.platform.initCloud();
+            const profile = await this.platform.requestProfile();
+            this.entryMessage = shared?.roomId ? '正在加入房间' : '正在创建房间';
+            this.render();
+            const service = new CloudRoomService(this.platform);
+            this.setRoomService(service);
+            if (shared?.roomId) {
+                await service.joinRoom(shared.roomId, profile, shared.joinToken);
+                this.entryMessage = '';
+                this.toast(`通过分享加入房间 ${shared.roomId}`);
+            } else {
+                await service.createRoom(profile);
+                this.entryMessage = '';
+            }
+            this.isOnlineStarting = false;
+            this.platform.setSharePayload(service.getSharePayload());
+        } catch (error) {
+            console.error('[GameRoot] start online room failed', error);
+            this.clearRoomService();
+            this.entryMode = 'menu';
+            this.isOnlineStarting = false;
+            this.entryMessage = this.errorMessage(error);
+            this.platform.toast(this.entryMessage);
+            this.render();
         }
     }
 
-    private getLaunchRoomId(): string {
-        const wxApi = (globalThis as { wx?: { getLaunchOptionsSync?: () => { query?: Record<string, string> } } }).wx;
-        const query = wxApi?.getLaunchOptionsSync?.().query;
-        return query?.roomId || query?.room || '';
+    private setRoomService(service: RoomService): void {
+        this.clearRoomService();
+        this.service = service;
+        this.unsubscribeRoom = service.subscribe((state) => {
+            this.state = state;
+            this.entryMode = 'room';
+            this.syncSelection();
+            if (this.roomMode === 'online') {
+                this.platform.setSharePayload(service.getSharePayload());
+            }
+            this.render();
+        });
+    }
+
+    private clearRoomService(): void {
+        this.unsubscribeRoom?.();
+        this.unsubscribeRoom = null;
+        (this.service as { dispose?: () => void } | null)?.dispose?.();
+        this.service = null;
+        this.state = null;
     }
 
     private render(): void {
@@ -127,81 +204,112 @@ export class GameRoot extends Component {
         this.activeNodeKeys.clear();
         this.drawBackground(this.content);
         if (this.entryMode === 'menu' || !this.state) {
-            this.drawEntryMenu(this.content);
+            if (this.entryMode === 'single') {
+                this.drawSingleDiceTool(this.content);
+            } else {
+                this.drawEntryMenu(this.content);
+            }
             this.hideUnusedNodes();
             return;
         }
         this.drawTopBar(this.content, this.state);
         this.drawTable(this.content, this.state);
         this.drawPlayers(this.content, this.state);
-        this.drawControls(this.content, this.state);
-        this.drawRollingCenter(this.content, this.state);
         if (this.state.settlement) {
             this.drawSettlement(this.content, this.state);
+            this.drawControls(this.content, this.state);
+        } else {
+            this.drawControls(this.content, this.state);
+            this.drawRollingCenter(this.content, this.state);
         }
         this.hideUnusedNodes();
         this.syncRollingAnimations(this.state);
     }
 
     private drawBackground(parent: Node): void {
-        const bg = this.createNode('Background', parent, 0, 0, DESIGN_WIDTH, DESIGN_HEIGHT);
-        const graphics = this.graphics(bg);
-        graphics.clear();
-        graphics.fillColor = new Color(56, 13, 18, 255);
-        graphics.rect(-DESIGN_WIDTH / 2, -DESIGN_HEIGHT / 2, DESIGN_WIDTH, DESIGN_HEIGHT);
-        graphics.fill();
-        graphics.fillColor = new Color(97, 23, 28, 255);
-        graphics.roundRect(-320, -540, 640, 1080, 28);
-        graphics.fill();
-        graphics.fillColor = new Color(145, 35, 30, 220);
-        graphics.roundRect(-286, -506, 572, 1012, 22);
-        graphics.fill();
+        this.createNode('Background', parent, 0, 0, DESIGN_WIDTH, DESIGN_HEIGHT);
     }
 
     private drawEntryMenu(parent: Node): void {
         this.panel(parent, 'EntryModePanel', 0, 95, 620, 460, new Color(28, 21, 22, 245), new Color(233, 187, 95, 255));
         this.text(parent, 'EntryTitleText', '大话骰', 0, 260, 52, new Color(255, 228, 162, 255), 560);
-        this.text(parent, 'EntryHintText', '选择玩法后创建房间', 0, 198, 27, new Color(238, 211, 166, 255), 560);
-        this.button(parent, 'SingleModeButton', '单机模式', 0, 72, 360, 78, () => void this.startRoom('single'));
-        this.button(parent, 'OnlineModeButton', '联网模式', 0, -42, 360, 78, () => void this.startRoom('online'));
-        this.text(parent, 'OnlineReservedText', '联网模式已预留微信云开发接口，当前先走本地模拟', 0, -138, 22, new Color(218, 201, 168, 255), 540);
+        this.text(parent, 'EntryHintText', this.entryMessage || '选择玩法后创建房间', 0, 198, 27, new Color(238, 211, 166, 255), 560);
+        this.button(parent, 'SingleModeButton', '单机模式', 0, 72, 360, 78, () => void this.startRoom('single'), this.isOnlineStarting);
+        this.button(parent, 'OnlineModeButton', this.isOnlineStarting ? '连接中' : '联网模式', 0, -42, 360, 78, () => void this.startRoom('online'), this.isOnlineStarting);
+        const retryText = this.isOnlineStarting ? '请在微信弹窗中允许头像昵称授权' : (this.entryMessage ? '点击联网模式重试授权' : '');
+        this.text(parent, 'OnlineReservedText', retryText, 0, -102, 20, new Color(218, 201, 168, 255), 540);
+    }
+
+    private drawSingleDiceTool(parent: Node): void {
+        const topBar = this.drawTopBarContainer(parent);
+        this.text(topBar, 'RoomIdText', '单机骰盅', -190, 26, 32, new Color(255, 230, 178, 255), 260);
+        this.text(topBar, 'PhaseText', '线下模式', -185, -14, 24, new Color(245, 206, 135, 255), 300);
+        this.button(topBar, 'BackButton', '返回', 180, 20, 120, 52, () => {
+            this.entryMode = 'menu';
+            this.singleDice = [];
+            this.singleHasRolled = false;
+            this.localCupOffsetY = 0;
+            this.render();
+        });
+        this.text(parent, 'MessageText', this.singleHasRolled ? '上拖骰盅看牌，下拖盖住。' : '点击摇骰生成本机 5 个骰子。', 0, this.messageY(), 24, new Color(255, 238, 203, 255), 640);
+        const center = this.createNode('RollingCenterArea', parent, 0, 80, 560, 360);
+        const isRevealingDice = this.singleHasRolled && this.localCupOffsetY > 24;
+        this.text(center, 'RollingCenterTitleText', this.singleHasRolled ? '上拖骰盅查看自己的牌' : '单机模式：本机一副骰盅', 0, 152, 28, new Color(255, 230, 178, 255), 500);
+        if (isRevealingDice) {
+            this.drawDiceTray(center, 0, -38, 1.1);
+            this.drawDiceRow(center, this.singleDice, 0, -25, 62, 'CenterDiceRow');
+        }
+        const cup = this.drawCup(center, 0, -2 + this.localCupOffsetY, 1.75, 'CenterRollingCup-player-local');
+        this.bindCupDrag(cup);
+        this.text(center, 'CupDragHintText', this.singleHasRolled ? '上拖看牌 · 下拖盖住' : '摇骰前不会展示点数', 0, -146, 22, new Color(218, 201, 168, 255), 500);
+        this.button(parent, 'RollButton', this.isRollingLocal ? '摇骰中' : '摇骰', 0, -570, 230, 62, () => this.rollSingleWithAnimation(), this.isRollingLocal);
     }
 
     private drawTopBar(parent: Node, state: RoomState): void {
-        this.panel(parent, 'TopBar', 0, 570, 660, 110, new Color(42, 20, 20, 235), new Color(202, 154, 74, 255));
-        this.text(parent, 'RoomIdText', `房间 ${state.roomId}`, -190, 596, 32, new Color(255, 230, 178, 255), 260);
-        this.text(parent, 'PhaseText', `${this.phaseLabel(state)} · ${this.roomMode === 'single' ? '单机' : '联网'}`, -185, 556, 24, new Color(245, 206, 135, 255), 300);
-        this.button(parent, 'ShareButton', '分享', 180, 590, 120, 52, () => {
-            const payload = this.service.getSharePayload();
+        const topBar = this.drawTopBarContainer(parent);
+        this.text(topBar, 'RoomIdText', `房间 ${state.roomId}`, -190, 26, 32, new Color(255, 230, 178, 255), 260);
+        this.text(topBar, 'PhaseText', `${this.phaseLabel(state)} · ${this.roomMode === 'single' ? '单机' : '联网'}`, -185, -14, 24, new Color(245, 206, 135, 255), 300);
+        this.button(topBar, 'ShareButton', '分享', 180, 20, 120, 52, () => {
+            const payload = this.service?.getSharePayload();
+            if (!payload) {
+                return;
+            }
+            this.platform.share(payload);
             this.toast(`分享：${payload.title}（${payload.query}）`);
-        });
-        this.text(parent, 'MessageText', state.message, 0, 508, 24, new Color(255, 238, 203, 255), 640);
+        }, this.roomMode !== 'online');
+        this.text(parent, 'MessageText', this.pendingAction || state.message || '', 0, this.messageY(), 24, new Color(255, 238, 203, 255), 640);
+    }
+
+    private drawTopBarContainer(parent: Node): Node {
+        return this.panel(parent, 'TopBar', this.topBarBaseX, this.topBarY(), 660, TOP_BAR_HEIGHT, new Color(42, 20, 20, 165), new Color(202, 154, 74, 175));
+    }
+
+    private topBarY(): number {
+        const cappedInset = Math.min(110, this.safeTopInset);
+        return this.topBarBaseY - cappedInset;
+    }
+
+    private messageY(): number {
+        return this.topBarY() - 62;
+    }
+
+    private topSeatY(): number {
+        return Math.min(385, this.topBarY() - 138);
     }
 
     private drawTable(parent: Node, state: RoomState): void {
-        const table = this.createNode('Table', parent, 0, 120, 590, 480);
-        const graphics = this.graphics(table);
-        graphics.clear();
-        graphics.fillColor = new Color(68, 34, 20, 255);
-        graphics.ellipse(0, 0, 292, 226);
-        graphics.fill();
-        graphics.fillColor = new Color(42, 111, 74, 255);
-        graphics.ellipse(0, 10, 250, 190);
-        graphics.fill();
-        graphics.strokeColor = new Color(223, 174, 90, 255);
-        graphics.lineWidth = 8;
-        graphics.ellipse(0, 10, 250, 190);
-        graphics.stroke();
+        this.panel(parent, 'Table', 0, 120, 590, 480, new Color(22, 18, 18, 0), new Color(238, 190, 98, 0));
 
         const lastBid = state.lastBid ? `${this.playerName(state, state.lastBid.playerId)}：${state.lastBid.quantity} 个 ${state.lastBid.face}` : '等待叫牌';
         this.text(parent, 'LastBidText', lastBid, 0, 165, 34, new Color(255, 237, 184, 255), 480);
-        this.text(parent, 'RuleText', state.onesAreWild ? '规则：1 当前为万能点' : '规则：1 已关闭万能', 0, 112, 24, new Color(219, 242, 209, 255), 420);
+        this.text(parent, 'RuleText', '', 0, 112, 24, new Color(219, 242, 209, 255), 420);
         this.drawBidHistory(parent, state);
     }
 
     private drawBidHistory(parent: Node, state: RoomState): void {
         const history = state.bidHistory.slice(-4).map((bid) => `${this.playerName(state, bid.playerId)} ${bid.quantity}个${bid.face}`).join('  /  ');
-        this.text(parent, 'BidHistoryText', history || '叫牌记录会显示在这里', 0, -105, 22, new Color(234, 215, 168, 255), 560);
+        const waiting = state.waitingPlayers?.length ? `等待下局：${state.waitingPlayers.map((player) => player.name).join('、')}` : '';
+        this.text(parent, 'BidHistoryText', waiting || history || '叫牌记录会显示在这里', 0, -105, 22, new Color(234, 215, 168, 255), 560);
     }
 
     private drawPlayers(parent: Node, state: RoomState): void {
@@ -221,13 +329,14 @@ export class GameRoot extends Component {
 
     private visualSeatPosition(player: PlayerState, localSeatIndex: number, playerCount: number): { x: number; y: number } {
         const relativeSeat = this.relativeSeat(player.seatIndex, localSeatIndex, playerCount);
+        const topSeatY = this.topSeatY();
         const layouts: Record<number, { x: number; y: number }[]> = {
             1: [{ x: 0, y: -330 }],
-            2: [{ x: 0, y: -330 }, { x: 0, y: 385 }],
+            2: [{ x: 0, y: -330 }, { x: 0, y: topSeatY }],
             3: [{ x: 0, y: -330 }, { x: -240, y: 290 }, { x: 240, y: 290 }],
-            4: [{ x: 0, y: -330 }, { x: -240, y: 290 }, { x: 0, y: 385 }, { x: 240, y: 290 }],
+            4: [{ x: 0, y: -330 }, { x: -240, y: 290 }, { x: 0, y: topSeatY }, { x: 240, y: 290 }],
             5: [{ x: 0, y: -330 }, { x: -250, y: 80 }, { x: -240, y: 290 }, { x: 240, y: 290 }, { x: 250, y: 80 }],
-            6: [{ x: 0, y: -330 }, { x: -250, y: 80 }, { x: -240, y: 290 }, { x: 0, y: 385 }, { x: 240, y: 290 }, { x: 250, y: 80 }],
+            6: [{ x: 0, y: -330 }, { x: -250, y: 80 }, { x: -240, y: 290 }, { x: 0, y: topSeatY }, { x: 240, y: 290 }, { x: 250, y: 80 }],
         };
         const positions = layouts[Math.max(1, Math.min(6, playerCount))] || layouts[6];
         return positions[relativeSeat] || positions[0];
@@ -243,22 +352,35 @@ export class GameRoot extends Component {
     private drawPlayerSeat(parent: Node, state: RoomState, player: PlayerState, x: number, y: number): void {
         const seatRoot = this.getPlayerSeat(parent, player, x, y);
         const isTurn = state.currentTurnPlayerId === player.id;
-        const panelColor = isTurn ? new Color(119, 52, 30, 245) : new Color(42, 24, 24, 220);
-        const seatWidth = player.isLocal ? 630 : 190;
-        const seatHeight = player.isLocal ? 178 : 132;
-        this.panel(seatRoot, 'SeatPanel', 0, 0, seatWidth, seatHeight, panelColor, isTurn ? new Color(255, 214, 98, 255) : new Color(151, 111, 71, 255));
-        this.drawAvatar(seatRoot, player, -seatWidth / 2 + (player.isLocal ? 58 : 34), player.isLocal ? 38 : 25, player.isLocal ? 58 : 38, 'Avatar');
-        this.text(seatRoot, 'PlayerNameText', `${player.name}${player.isHost ? ' 房主' : ''}`, player.isLocal ? 42 : 18, player.isLocal ? 55 : 42, player.isLocal ? 28 : 21, new Color(255, 233, 190, 255), player.isLocal ? 410 : 118);
-        this.text(seatRoot, 'PlayerStatusText', this.playerStatus(state, player), player.isLocal ? 42 : 18, player.isLocal ? 22 : 13, player.isLocal ? 22 : 18, new Color(230, 205, 155, 255), player.isLocal ? 410 : 118);
+        const panelColor = isTurn
+            ? new Color(119, 52, 30, player.isLocal ? 185 : 150)
+            : new Color(32, 22, 22, player.isLocal ? 155 : 135);
+        const panelStroke = isTurn
+            ? new Color(255, 214, 98, player.isLocal ? 220 : 150)
+            : new Color(151, 111, 71, player.isLocal ? 180 : 95);
+        const seatWidth = player.isLocal ? 630 : 160;
+        const seatHeight = player.isLocal ? 178 : 118;
+        this.panel(seatRoot, 'SeatPanel', 0, 0, seatWidth, seatHeight, panelColor, panelStroke);
+        const avatarSize = player.isLocal ? 58 : 38;
+        const avatarY = player.isLocal ? 38 : 25;
+        const infoWidth = player.isLocal ? 265 : 106;
+        const infoGap = player.isLocal ? 16 : 8;
+        const groupCenterX = player.isLocal ? 42 : 0;
+        const groupLeftX = groupCenterX - (avatarSize + infoGap + infoWidth) / 2;
+        const avatarX = groupLeftX + avatarSize / 2;
+        const infoX = groupLeftX + avatarSize + infoGap + infoWidth / 2;
+        const infoText = `${player.name}${player.isHost ? ' 房主' : ''} · ${this.playerStatus(state, player)}`;
+        this.drawAvatar(seatRoot, player, avatarX, avatarY, avatarSize, 'Avatar');
+        this.text(seatRoot, 'PlayerNameText', infoText, infoX, avatarY - 3, player.isLocal ? 25 : 17, new Color(255, 233, 190, 255), infoWidth);
 
         if (player.isLocal || state.phase === 'settlement') {
             if (state.phase === 'rolling' && !player.hasRolled) {
-                this.drawCup(seatRoot, player.isLocal ? 42 : 0, player.isLocal ? -43 : -30, player.isLocal ? 0.55 : 0.48, 'SeatRollingCup');
+                this.drawCup(seatRoot, player.isLocal ? 42 : 0, player.isLocal ? -43 : -34, player.isLocal ? 0.55 : 0.3, 'SeatRollingCup');
             } else {
                 this.drawDiceRow(seatRoot, player.dice, player.isLocal ? 42 : 0, player.isLocal ? -43 : -30, player.isLocal ? 50 : 28, 'SeatDiceRow');
             }
         } else {
-            this.drawCup(seatRoot, 0, -32, 0.48, 'SeatCup');
+            this.drawCup(seatRoot, 0, -34, 0.3, 'SeatCup');
         }
     }
 
@@ -268,23 +390,25 @@ export class GameRoot extends Component {
             return;
         }
         if (state.phase === 'lobby') {
-            this.button(parent, 'ReadyButton', local.isReady ? '已准备' : '准备', -115, -570, 190, 62, () => void this.service.ready(local.id), local.isReady);
-            this.button(parent, 'MockJoinButton', '模拟加入', 115, -570, 190, 62, () => this.toast('本地默认已加入 4 人房'));
+            const waitingForPlayers = state.players.length < 2 && local.isReady;
+            const readyLabel = this.pendingAction ? '处理中' : local.isReady ? '已准备' : '准备';
+            this.button(parent, 'ReadyButton', readyLabel, -115, -570, 190, 62, () => this.runRoomAction('正在准备', () => this.service?.ready()), local.isReady || !!this.pendingAction);
+            this.button(parent, 'MockJoinButton', waitingForPlayers ? '等好友' : state.waitingPlayers?.length ? '下局有人' : '等好友', 115, -570, 190, 62, () => this.toast(state.waitingPlayers?.length ? '等待玩家会在下一局加入' : '点击右上角分享给好友'), true);
             return;
         }
         if (state.phase === 'rolling') {
-            this.button(parent, 'RollButton', this.isRollingLocal ? '摇骰中' : local.hasRolled ? '已摇骰' : '摇骰', 0, -570, 230, 62, () => this.rollLocalWithAnimation(local.id), local.hasRolled || this.isRollingLocal);
+            this.button(parent, 'RollButton', this.isRollingLocal ? '摇骰中' : local.hasRolled ? '已摇骰' : '摇骰', 0, -570, 230, 62, () => this.rollLocalWithAnimation(), local.hasRolled || this.isRollingLocal || !!this.pendingAction);
             return;
         }
         if (state.phase === 'bidding') {
             const isMyTurn = state.currentTurnPlayerId === local.id;
             this.drawBidPicker(parent, isMyTurn);
-            this.button(parent, 'BidActionButton', '叫牌', -120, -570, 190, 62, () => void this.service.bid(local.id, this.selectedQuantity, this.selectedFace), !isMyTurn);
-            this.button(parent, 'OpenActionButton', '开', 120, -570, 190, 62, () => void this.service.open(local.id), !isMyTurn || !state.lastBid);
+            this.button(parent, 'BidActionButton', this.pendingAction ? '处理中' : '叫牌', -120, -570, 190, 62, () => this.runRoomAction('正在叫牌', () => this.service?.bid(this.selectedQuantity, this.selectedFace)), !isMyTurn || !!this.pendingAction);
+            this.button(parent, 'OpenActionButton', this.pendingAction ? '处理中' : '开', 120, -570, 190, 62, () => this.runRoomAction('正在开牌', () => this.service?.open()), !isMyTurn || !state.lastBid || !!this.pendingAction);
             return;
         }
         if (state.phase === 'settlement') {
-            this.button(parent, 'RestartButton', '再来一局', 0, -570, 240, 62, () => void this.service.restart());
+            this.button(parent, 'RestartButton', this.pendingAction ? '处理中' : state.canRestart === false ? '等房主重开' : '再来一局', 0, -570, 240, 62, () => this.runRoomAction('正在开始下一局', () => this.service?.restart()), state.canRestart === false || !!this.pendingAction);
         }
     }
 
@@ -297,27 +421,31 @@ export class GameRoot extends Component {
             return;
         }
         const center = this.createNode('RollingCenterArea', parent, 0, 80, 560, 360);
-        this.text(center, 'RollingCenterTitleText', local.hasRolled ? '上拖骰盅查看自己的牌' : '摇完后上拖骰盅看牌', 0, 152, 28, new Color(255, 230, 178, 255), 500);
-        this.drawDiceTray(center, 0, -38, 1.1);
-        this.drawDiceRow(center, local.dice, 0, -25, 62, 'CenterDiceRow');
+        const isRevealingDice = local.hasRolled && this.localCupOffsetY > 24;
+        this.text(center, 'RollingCenterTitleText', local.hasRolled ? '已摇骰，等待所有玩家摇完' : '全员准备完成，请各自点击摇骰', 0, 152, 28, new Color(255, 230, 178, 255), 500);
+        if (isRevealingDice) {
+            this.drawDiceTray(center, 0, -38, 1.1);
+            this.drawDiceRow(center, local.dice, 0, -25, 62, 'CenterDiceRow');
+        }
         const coverY = -2 + this.localCupOffsetY;
         const cup = this.drawCup(center, 0, coverY, 1.75, `CenterRollingCup-${local.id}`);
         this.bindCupDrag(cup);
-        this.text(center, 'CupDragHintText', '上拖看牌 · 下拖盖住', 0, -146, 22, new Color(218, 201, 168, 255), 500);
+        this.text(center, 'CupDragHintText', local.hasRolled ? '上拖看牌 · 下拖盖住' : '摇骰前不会展示点数', 0, -146, 22, new Color(218, 201, 168, 255), 500);
     }
 
     private drawBidPicker(parent: Node, enabled: boolean): void {
-        this.panel(parent, 'BidPicker', 0, -470, 540, 76, new Color(28, 24, 24, 230), new Color(154, 112, 66, 255));
+        this.panel(parent, 'BidPicker', 0, -470, 560, 78, new Color(28, 24, 24, 170), new Color(154, 112, 66, 170));
         this.button(parent, 'QuantityMinusButton', '-', -220, -470, 52, 52, () => this.changeQuantity(-1), !enabled);
         this.text(parent, 'SelectedQuantityText', `${this.selectedQuantity} 个`, -142, -477, 27, new Color(255, 233, 190, 255), 94);
         this.button(parent, 'QuantityPlusButton', '+', -62, -470, 52, 52, () => this.changeQuantity(1), !enabled);
-        this.button(parent, 'FaceMinusButton', '-', 62, -470, 52, 52, () => this.changeFace(-1), !enabled);
-        this.drawDie(parent, 136, -470, 40, this.selectedFace, !enabled, 'SelectedFaceDie');
+        this.button(parent, 'FaceMinusButton', '-', 56, -470, 52, 52, () => this.changeFace(-1), !enabled);
+        this.drawDie(parent, 136, -470, 54, this.selectedFace, !enabled, 'SelectedFaceDie');
         this.button(parent, 'FacePlusButton', '+', 220, -470, 52, 52, () => this.changeFace(1), !enabled);
     }
 
     private drawSettlement(parent: Node, state: RoomState): void {
         const settlement = state.settlement!;
+        this.panel(parent, 'SettlementBackdrop', 0, 0, DESIGN_WIDTH, DESIGN_HEIGHT, new Color(8, 7, 7, 225), new Color(8, 7, 7, 0));
         this.panel(parent, 'Settlement', 0, 35, 620, 560, new Color(22, 18, 18, 248), new Color(238, 190, 98, 255));
         this.text(parent, 'SettlementTitleText', '开牌结算', 0, 280, 40, new Color(255, 228, 162, 255), 560);
         this.text(parent, 'SettlementLastBidText', `上一手：${this.playerName(state, settlement.lastBid.playerId)} 叫 ${settlement.lastBid.quantity} 个`, -36, 226, 27, new Color(245, 219, 174, 255), 450);
@@ -383,7 +511,7 @@ export class GameRoot extends Component {
         const spots = this.pipPositions(face, size * 0.24);
         graphics.fillColor = pip;
         spots.forEach((spot) => {
-            graphics.circle(spot.x, spot.y, size * 0.055);
+            graphics.circle(spot.x, spot.y, size * 0.085);
             graphics.fill();
         });
     }
@@ -421,45 +549,21 @@ export class GameRoot extends Component {
     }
 
     private drawCup(parent: Node, x: number, y: number, scale: number, name = 'Cup'): Node {
-        const node = this.createNode(name, parent, x, y, 150 * scale, 150 * scale);
-        const graphics = this.graphics(node);
-        graphics.clear();
-        graphics.fillColor = new Color(74, 12, 20, 255);
-        graphics.moveTo(-58 * scale, -52 * scale);
-        graphics.lineTo(58 * scale, -52 * scale);
-        graphics.lineTo(44 * scale, 46 * scale);
-        graphics.lineTo(-44 * scale, 46 * scale);
-        graphics.close();
-        graphics.fill();
-        graphics.fillColor = new Color(130, 24, 31, 255);
-        graphics.moveTo(-43 * scale, -42 * scale);
-        graphics.lineTo(43 * scale, -42 * scale);
-        graphics.lineTo(34 * scale, 34 * scale);
-        graphics.lineTo(-34 * scale, 34 * scale);
-        graphics.close();
-        graphics.fill();
-        graphics.fillColor = new Color(172, 43, 38, 255);
-        graphics.ellipse(0, 48 * scale, 50 * scale, 15 * scale);
-        graphics.fill();
-        graphics.strokeColor = new Color(229, 179, 82, 255);
-        graphics.lineWidth = 4 * scale;
-        graphics.ellipse(0, 48 * scale, 50 * scale, 15 * scale);
-        graphics.stroke();
-        graphics.strokeColor = new Color(229, 179, 82, 230);
-        graphics.lineWidth = 3 * scale;
-        graphics.moveTo(-49 * scale, -28 * scale);
-        graphics.lineTo(49 * scale, -28 * scale);
-        graphics.stroke();
-        graphics.fillColor = new Color(35, 10, 13, 120);
-        graphics.ellipse(0, -53 * scale, 58 * scale, 12 * scale);
-        graphics.fill();
-        return node;
+        return this.createNode(name, parent, x, y, 150 * scale, 150 * scale);
     }
 
     private drawAvatar(parent: Node, player: PlayerState, x: number, y: number, size: number, name = `Avatar-${player.id}`): void {
         const node = this.createNode(name, parent, x, y, size, size);
+        const sprite = this.avatarSprite(node, size);
+        const avatarFrame = player.avatarUrl ? this.avatarFrames.get(player.avatarUrl) : null;
+        sprite.spriteFrame = avatarFrame || null;
+        sprite.enabled = !!avatarFrame;
+        if (!avatarFrame && player.avatarUrl) {
+            this.loadAvatarFrame(player.avatarUrl);
+        }
         const graphics = this.graphics(node);
         graphics.clear();
+        graphics.enabled = true;
         const avatarColors = [
             new Color(242, 178, 83, 255),
             new Color(91, 165, 195, 255),
@@ -475,21 +579,125 @@ export class GameRoot extends Component {
         graphics.lineWidth = Math.max(2, size * 0.08);
         graphics.circle(0, 0, size / 2);
         graphics.stroke();
-        graphics.fillColor = new Color(76, 38, 36, 255);
-        graphics.circle(0, size * 0.12, size * 0.15);
-        graphics.fill();
-        graphics.roundRect(-size * 0.24, -size * 0.26, size * 0.48, size * 0.28, size * 0.12);
-        graphics.fill();
+        if (!avatarFrame) {
+            graphics.fillColor = new Color(76, 38, 36, 255);
+            graphics.circle(0, size * 0.12, size * 0.15);
+            graphics.fill();
+            graphics.roundRect(-size * 0.24, -size * 0.26, size * 0.48, size * 0.28, size * 0.12);
+            graphics.fill();
+        }
+    }
+
+    private avatarSprite(node: Node, size: number): Sprite {
+        const legacySprite = node.getComponent(Sprite);
+        if (legacySprite) {
+            legacySprite.enabled = false;
+            legacySprite.spriteFrame = null;
+        }
+        const maskSize = size * 0.86;
+        let maskNode = node.getChildByName('AvatarMask');
+        if (!maskNode) {
+            maskNode = new Node('AvatarMask');
+            maskNode.parent = node;
+            maskNode.layer = node.layer;
+            maskNode.setPosition(new Vec3(0, 0, 0));
+            maskNode.addComponent(UITransform);
+        }
+        maskNode.active = true;
+        maskNode.layer = node.layer;
+        maskNode.setPosition(new Vec3(0, 0, 0));
+        maskNode.setSiblingIndex(Math.max(0, node.children.length - 2));
+        maskNode.getComponent(UITransform)?.setContentSize(maskSize, maskSize);
+        let mask = maskNode.getComponent(Mask);
+        if (!mask) {
+            mask = maskNode.addComponent(Mask);
+        }
+        mask.type = Mask.Type.GRAPHICS_ELLIPSE;
+
+        let imageNode = maskNode.getChildByName('AvatarImage');
+        if (!imageNode) {
+            imageNode = new Node('AvatarImage');
+            imageNode.parent = maskNode;
+            imageNode.layer = maskNode.layer;
+            imageNode.setPosition(new Vec3(0, 0, 0));
+            imageNode.addComponent(UITransform);
+        }
+        imageNode.active = true;
+        imageNode.layer = maskNode.layer;
+        imageNode.setPosition(new Vec3(0, 0, 0));
+        imageNode.setSiblingIndex(maskNode.children.length - 1);
+        imageNode.getComponent(UITransform)?.setContentSize(maskSize, maskSize);
+        let sprite = imageNode.getComponent(Sprite);
+        if (!sprite) {
+            sprite = imageNode.addComponent(Sprite);
+            sprite.type = Sprite.Type.SIMPLE;
+            sprite.sizeMode = Sprite.SizeMode.CUSTOM;
+        }
+        return sprite;
+    }
+
+    private loadAvatarFrame(url: string): void {
+        if (!this.canDownloadAvatar(url)) {
+            return;
+        }
+        if (this.avatarFrames.has(url) || this.loadingAvatarUrls.has(url)) {
+            return;
+        }
+        this.loadingAvatarUrls.add(url);
+        this.resolveAvatarLoadUrl(url)
+            .then((loadUrl) => this.loadAvatarImage(url, loadUrl))
+            .catch((error) => {
+                this.loadingAvatarUrls.delete(url);
+                console.error('[GameRoot] prepare avatar failed', url, error);
+            });
+    }
+
+    private async resolveAvatarLoadUrl(url: string): Promise<string> {
+        if (url.startsWith('cloud://')) {
+            return this.platform.downloadCloudFile(url);
+        }
+        return url;
+    }
+
+    private loadAvatarImage(cacheKey: string, loadUrl: string): void {
+        assetManager.loadRemote<ImageAsset>(loadUrl, { ext: this.avatarExt(cacheKey, loadUrl) }, (error, imageAsset) => {
+            this.loadingAvatarUrls.delete(cacheKey);
+            if (error || !imageAsset) {
+                console.error('[GameRoot] load avatar failed', { cacheKey, loadUrl, error });
+                return;
+            }
+            const spriteFrame = SpriteFrame.createWithImage(imageAsset);
+            this.avatarFrames.set(cacheKey, spriteFrame);
+            this.render();
+        });
+    }
+
+    private avatarExt(cacheKey: string, url: string): string {
+        if (cacheKey.startsWith('cloud://')) {
+            return '.jpg';
+        }
+        const cleanUrl = url.split('?')[0].toLowerCase();
+        if (cleanUrl.endsWith('.jpg') || cleanUrl.endsWith('.jpeg')) {
+            return '.jpg';
+        }
+        return '.png';
+    }
+
+    private canDownloadAvatar(url: string): boolean {
+        if (url.includes('thirdwx.qlogo.cn')) {
+            return false;
+        }
+        return true;
     }
 
     private button(parent: Node, name: string, label: string, x: number, y: number, width: number, height: number, onClick: () => void, disabled = false): Node {
-        const node = this.panel(parent, name, x, y, width, height, disabled ? new Color(82, 75, 70, 230) : new Color(156, 35, 31, 245), new Color(234, 184, 94, 255));
+        const node = this.panel(parent, name, x, y, width, height, disabled ? new Color(82, 75, 70, 230) : new Color(255, 212, 48, 255), new Color(234, 184, 94, 255));
         const button = node.getComponent(Button);
         if (!button) {
             throw new Error(`${node.name} is missing Button. Run npm run generate:scene first.`);
         }
         if (!this.buttonHandlers.has(node.name)) {
-            node.on(Node.EventType.TOUCH_END, (_event: EventTouch) => {
+            node.on(Button.EventType.CLICK, () => {
                 const handler = this.buttonHandlers.get(node.name);
                 if (handler) {
                     handler();
@@ -502,7 +710,7 @@ export class GameRoot extends Component {
                 onClick();
             }
         });
-        this.text(node, 'ButtonLabelText', label, 0, -4, Math.min(30, height * 0.42), disabled ? new Color(186, 176, 162, 255) : new Color(255, 235, 188, 255), width - 16);
+        this.text(node, 'ButtonLabelText', label, 0, -4, Math.min(30, height * 0.42), disabled ? new Color(186, 176, 162, 255) : new Color(83, 45, 22, 255), width - 16);
         return node;
     }
 
@@ -528,7 +736,7 @@ export class GameRoot extends Component {
         }
         label.string = value;
         label.fontSize = fontSize;
-        label.lineHeight = fontSize + 7;
+        label.lineHeight = this.sceneLabelLineHeight(node) ?? fontSize + 7;
         label.color = color;
         label.horizontalAlign = 1;
         label.verticalAlign = 1;
@@ -548,11 +756,17 @@ export class GameRoot extends Component {
             this.nodeCache.set(key, node);
         }
         this.activeNodeKeys.add(key);
-        node.active = true;
+        node.active = !this.shouldKeepSceneHidden(node);
+        const editorPreview = node.getChildByName('EditorPreview');
+        if (editorPreview) {
+            editorPreview.active = false;
+        }
         if (node.parent !== parent) {
             node.parent = parent;
         }
-        node.setPosition(new Vec3(x, y, 0));
+        node.setSiblingIndex(parent.children.length - 1);
+        const position = this.editableScenePosition(node, parent, x, y);
+        node.setPosition(new Vec3(position.x, position.y, 0));
         node.layer = parent.layer;
         const transform = node.getComponent(UITransform);
         if (!transform) {
@@ -560,6 +774,26 @@ export class GameRoot extends Component {
         }
         transform.setContentSize(width, height);
         return node;
+    }
+
+    private captureEditableLayout(): void {
+        const topBar = this.content?.getChildByName('TopBar');
+        if (!topBar) {
+            return;
+        }
+        this.topBarBaseX = topBar.position.x;
+        this.topBarBaseY = topBar.position.y;
+    }
+
+    private editableScenePosition(node: Node, parent: Node, x: number, y: number): { x: number; y: number } {
+        const scenePosition = this.sceneNodePositions.get(node);
+        if (node.name === 'TopBar') {
+            return { x: this.topBarBaseX, y };
+        }
+        if (scenePosition) {
+            return scenePosition;
+        }
+        return { x, y };
     }
 
     private getPlayerSeat(parent: Node, player: PlayerState, x: number, y: number): Node {
@@ -578,6 +812,7 @@ export class GameRoot extends Component {
         this.nodeCache.set(key, seatNode);
         this.activeNodeKeys.add(key);
         seatNode.active = true;
+        seatNode.setSiblingIndex(parent.children.length - 1);
         seatNode.setPosition(new Vec3(x, y, 0));
         const transform = seatNode.getComponent(UITransform);
         if (!transform) {
@@ -590,8 +825,25 @@ export class GameRoot extends Component {
     private cacheSceneNodes(parent: Node): void {
         parent.children.forEach((child) => {
             this.nodeCache.set(this.nodeKey(parent, child.name, 0, 0, 0, 0), child);
+            this.sceneNodePositions.set(child, { x: child.position.x, y: child.position.y });
+            this.sceneNodeActive.set(child, child.active);
+            const label = child.getComponent(Label);
+            if (label) {
+                this.sceneLabelLineHeights.set(child, label.lineHeight);
+            }
             this.cacheSceneNodes(child);
         });
+    }
+
+    private shouldKeepSceneHidden(node: Node): boolean {
+        return node.name === 'MessageText' && this.sceneNodeActive.get(node) === false;
+    }
+
+    private sceneLabelLineHeight(node: Node): number | undefined {
+        if (node.name !== 'MessageText') {
+            return undefined;
+        }
+        return this.sceneLabelLineHeights.get(node);
     }
 
     private requireChild(parent: Node, name: string): Node {
@@ -605,6 +857,9 @@ export class GameRoot extends Component {
 
     private hideUnusedNodes(): void {
         this.nodeCache.forEach((node, key) => {
+            if (node.name === 'EditorPreview') {
+                return;
+            }
             if (node !== this.content && !this.activeNodeKeys.has(key)) {
                 this.stopNodeAnimation(node);
                 node.active = false;
@@ -645,23 +900,78 @@ export class GameRoot extends Component {
         });
     }
 
-    private rollLocalWithAnimation(playerId: string): void {
-        if (this.isRollingLocal) {
+    private rollLocalWithAnimation(): void {
+        const playerId = this.state?.localPlayerId || 'player-local';
+        if (this.isRollingLocal || this.pendingAction) {
             return;
         }
         this.localCupOffsetY = 0;
         this.render();
         const node = this.findNodeBySafeName(`CenterRollingCup-${playerId}`);
         if (!node) {
-            void this.service.roll(playerId);
+            this.isRollingLocal = true;
+            this.render();
+            this.scheduleOnce(() => {
+                this.isRollingLocal = false;
+                this.runRoomAction('正在同步骰子', () => this.service?.roll());
+            }, 0.8);
             return;
         }
         this.isRollingLocal = true;
         this.render();
         this.playStrongShake(node, () => {
             this.isRollingLocal = false;
-            void this.service.roll(playerId);
+            this.runRoomAction('正在同步骰子', () => this.service?.roll());
         });
+    }
+
+    private runRoomAction(message: string, action: () => Promise<void> | void | undefined): void {
+        if (this.pendingAction) {
+            return;
+        }
+        let result: Promise<void> | void | undefined;
+        try {
+            result = action();
+        } catch (error) {
+            console.error('[GameRoot] room action failed', error);
+            this.toast(this.errorMessage(error));
+            return;
+        }
+        if (!result) {
+            return;
+        }
+        this.pendingAction = message;
+        this.render();
+        result
+            .catch((error) => {
+                console.error('[GameRoot] room action failed', error);
+                this.toast(this.errorMessage(error));
+            })
+            .finally(() => {
+                this.pendingAction = '';
+                this.render();
+            });
+    }
+
+    private rollSingleWithAnimation(): void {
+        if (this.isRollingLocal) {
+            return;
+        }
+        this.localCupOffsetY = 0;
+        this.isRollingLocal = true;
+        this.render();
+        const node = this.findNodeBySafeName('CenterRollingCup-player-local');
+        const finish = () => {
+            this.isRollingLocal = false;
+            this.singleDice = rollDice(DICE_PER_PLAYER);
+            this.singleHasRolled = true;
+            this.render();
+        };
+        if (!node) {
+            this.scheduleOnce(finish, 0.8);
+            return;
+        }
+        this.playStrongShake(node, finish);
     }
 
     private startIdleShake(node: Node): void {
@@ -684,13 +994,13 @@ export class GameRoot extends Component {
         const basePosition = node.position.clone();
         node.angle = 0;
         tween(node)
-            .to(0.07, { position: new Vec3(basePosition.x - 18, basePosition.y + 8, 0), angle: -14 })
-            .to(0.07, { position: new Vec3(basePosition.x + 18, basePosition.y - 6, 0), angle: 14 })
-            .to(0.06, { position: new Vec3(basePosition.x - 14, basePosition.y - 8, 0), angle: -12 })
-            .to(0.06, { position: new Vec3(basePosition.x + 14, basePosition.y + 6, 0), angle: 12 })
-            .to(0.06, { position: new Vec3(basePosition.x - 10, basePosition.y + 4, 0), angle: -8 })
-            .to(0.06, { position: new Vec3(basePosition.x + 10, basePosition.y - 4, 0), angle: 8 })
-            .to(0.08, { position: basePosition, angle: 0 })
+            .to(0.1, { position: new Vec3(basePosition.x - 24, basePosition.y + 10, 0), angle: -16 })
+            .to(0.1, { position: new Vec3(basePosition.x + 24, basePosition.y - 8, 0), angle: 16 })
+            .to(0.1, { position: new Vec3(basePosition.x - 20, basePosition.y - 10, 0), angle: -14 })
+            .to(0.1, { position: new Vec3(basePosition.x + 20, basePosition.y + 8, 0), angle: 14 })
+            .to(0.1, { position: new Vec3(basePosition.x - 16, basePosition.y + 6, 0), angle: -10 })
+            .to(0.1, { position: new Vec3(basePosition.x + 16, basePosition.y - 6, 0), angle: 10 })
+            .to(0.12, { position: basePosition, angle: 0 })
             .call(onComplete)
             .start();
     }
@@ -810,6 +1120,46 @@ export class GameRoot extends Component {
         if (this.state) {
             this.state.message = message;
             this.render();
+            return;
         }
+        this.entryMessage = message;
+        this.render();
+    }
+
+    private errorMessage(error: unknown): string {
+        if (error instanceof Error) {
+            return error.message;
+        }
+        if (typeof error === 'object' && error) {
+            const detail = error as { errMsg?: unknown; message?: unknown; errno?: unknown; code?: unknown; error?: unknown; detail?: unknown };
+            const nested = detail.error || detail.detail;
+            if (nested && nested !== error) {
+                const nestedMessage = this.errorMessage(nested);
+                if (nestedMessage && nestedMessage !== '未知错误') {
+                    return nestedMessage;
+                }
+            }
+            const message = detail.errMsg || detail.message;
+            if (message) {
+                const text = String(message);
+                if (text.includes('announce your privacy usage')) {
+                    return '微信后台还没声明头像昵称用途，请先到小程序后台完善用户隐私保护指引。';
+                }
+                if (text.includes('official popup') || text.includes('onNeedPrivacyAuthorization')) {
+                    return '需要先同意微信隐私授权后才能获取头像昵称，请在隐私弹窗中同意后重试。';
+                }
+                return text;
+            }
+            const code = detail.errno || detail.code;
+            if (code) {
+                return `操作失败：${String(code)}`;
+            }
+            try {
+                return JSON.stringify(error);
+            } catch (_error) {
+                return '操作失败，请重试。';
+            }
+        }
+        return String(error || '未知错误');
     }
 }
