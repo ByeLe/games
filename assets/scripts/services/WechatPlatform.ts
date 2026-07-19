@@ -6,6 +6,17 @@ type WxSuccess<T> = T & { errMsg?: string };
 interface WxApi {
     cloud?: {
         init: (options: { env: string; traceUser?: boolean }) => void;
+        connectContainer?: (options: {
+            service: string;
+            path: string;
+        }) => Promise<{ socketTask: {
+            send(options: { data: string; success?: () => void; fail?: (error: unknown) => void }): void;
+            close(options?: { code?: number; reason?: string }): void;
+            onOpen(callback: () => void): void;
+            onMessage(callback: (event: { data: string }) => void): void;
+            onError(callback: (error: unknown) => void): void;
+            onClose(callback: () => void): void;
+        } }>;
         callFunction: <T = unknown>(options: {
             name: string;
             data?: Record<string, unknown>;
@@ -89,6 +100,7 @@ interface WxApi {
     onShareAppMessage?: (handler: () => { title: string; query: string }) => void;
     shareAppMessage?: (payload: { title: string; query: string }) => void;
     getLaunchOptionsSync?: () => { query?: Record<string, string> };
+    login?: (options?: { success?: (res: { code?: string }) => void; fail?: (error: unknown) => void }) => Promise<{ code?: string }> | void;
     showToast?: (options: { title: string; icon?: 'success' | 'error' | 'loading' | 'none'; duration?: number }) => void;
 }
 
@@ -128,6 +140,20 @@ export class WechatPlatform {
             this.initialized = true;
         }
         wxApi.showShareMenu?.({ withShareTicket: true, menus: ['shareAppMessage'] });
+    }
+
+    login(): Promise<string> {
+        const wxApi = this.requireWx();
+        if (!wxApi.login) {
+            return Promise.reject(new Error('当前环境不支持微信登录。'));
+        }
+        return new Promise<string>((resolve, reject) => {
+            const success = (result: { code?: string }) => result.code ? resolve(result.code) : reject(new Error('微信登录未返回 code。'));
+            const result = wxApi.login?.({ success, fail: reject });
+            if (result && typeof (result as Promise<{ code?: string }>).then === 'function') {
+                (result as Promise<{ code?: string }>).then(success).catch(reject);
+            }
+        });
     }
 
     async requestProfile(): Promise<PlayerProfile> {

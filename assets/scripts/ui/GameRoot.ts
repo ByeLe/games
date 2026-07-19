@@ -422,7 +422,7 @@ export class GameRoot extends Component {
         }
         const center = this.createNode('RollingCenterArea', parent, 0, 80, 560, 360);
         const isRevealingDice = local.hasRolled && this.localCupOffsetY > 24;
-        this.text(center, 'RollingCenterTitleText', local.hasRolled ? '上拖骰盅查看自己的牌' : '点击摇骰后生成点数', 0, 152, 28, new Color(255, 230, 178, 255), 500);
+        this.text(center, 'RollingCenterTitleText', local.hasRolled ? '已摇骰，等待所有玩家摇完' : '全员准备完成，请各自点击摇骰', 0, 152, 28, new Color(255, 230, 178, 255), 500);
         if (isRevealingDice) {
             this.drawDiceTray(center, 0, -38, 1.1);
             this.drawDiceRow(center, local.dice, 0, -25, 62, 'CenterDiceRow');
