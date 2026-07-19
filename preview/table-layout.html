@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>大话骰桌面预览</title>
+  <style>
+    :root {
+      --gold: #f0c879;
+      --gold-deep: #9a6a2d;
+      --wood: #5b2f1f;
+      --wood-dark: #2a1712;
+      --felt: #224f2d;
+      --cream: #fff1c8;
+      --ink: #28170f;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: #17100d;
+      font-family: Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--cream);
+    }
+
+    .phone {
+      position: relative;
+      width: min(100vw, 420px);
+      aspect-ratio: 720 / 1280;
+      overflow: hidden;
+      background-image:
+        linear-gradient(180deg, rgba(20, 10, 6, .18), rgba(10, 4, 3, .2) 48%, rgba(5, 4, 3, .12)),
+        url("../assets/textures/table.jpeg");
+      background-size: cover;
+      background-position: center;
+      box-shadow: 0 24px 70px rgba(0, 0, 0, .55);
+    }
+
+    .top-bar {
+      position: absolute;
+      left: 22px;
+      right: 22px;
+      top: 18px;
+      height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      border: 1px solid rgba(240, 200, 121, .5);
+      border-radius: 12px;
+      background: linear-gradient(180deg, rgba(69, 36, 22, .72), rgba(39, 20, 14, .64));
+      box-shadow: 0 10px 24px rgba(0, 0, 0, .22);
+      backdrop-filter: blur(2px);
+    }
+
+    .room {
+      display: grid;
+      gap: 2px;
+      line-height: 1.05;
+    }
+
+    .room strong {
+      font-size: 18px;
+      color: var(--gold);
+    }
+
+    .room span {
+      font-size: 12px;
+      color: rgba(255, 241, 200, .78);
+    }
+
+    .share {
+      min-width: 74px;
+      height: 38px;
+      border: 1px solid rgba(255, 235, 170, .65);
+      border-radius: 10px;
+      color: #351e10;
+      font-weight: 800;
+      background: linear-gradient(180deg, #ffd98b, #c48638);
+      box-shadow: inset 0 1px rgba(255, 255, 255, .35), 0 5px 12px rgba(0, 0, 0, .28);
+    }
+
+    .message {
+      position: absolute;
+      left: 36px;
+      right: 36px;
+      top: 96px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      color: rgba(255, 244, 205, .88);
+      font-size: 13px;
+      background: rgba(34, 19, 12, .45);
+      border: 1px solid rgba(240, 200, 121, .26);
+    }
+
+    .seat {
+      position: absolute;
+      width: 102px;
+      min-height: 70px;
+      padding: 8px;
+      border: 1px solid rgba(245, 205, 127, .42);
+      border-radius: 14px;
+      background: linear-gradient(180deg, rgba(72, 39, 24, .75), rgba(32, 18, 13, .72));
+      box-shadow: 0 8px 20px rgba(0, 0, 0, .25);
+    }
+
+    .seat.local {
+      left: 24px;
+      right: 24px;
+      bottom: 96px;
+      width: auto;
+      min-height: 96px;
+      display: grid;
+      grid-template-columns: 54px 1fr 168px;
+      align-items: center;
+      gap: 10px;
+      border-color: rgba(255, 225, 146, .72);
+      background: linear-gradient(180deg, rgba(62, 36, 22, .82), rgba(24, 44, 28, .76));
+    }
+
+    .seat.left {
+      left: 18px;
+      top: 318px;
+    }
+
+    .seat.top {
+      left: 50%;
+      top: 238px;
+      transform: translateX(-50%);
+    }
+
+    .seat.right {
+      right: 18px;
+      top: 318px;
+    }
+
+    .avatar {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 225, 146, .7);
+      background:
+        radial-gradient(circle at 50% 38%, #ffe0b9 0 17%, transparent 18%),
+        radial-gradient(circle at 50% 80%, #6bb1bd 0 36%, transparent 37%),
+        linear-gradient(135deg, #386d80, #7ab4a3);
+      box-shadow: inset 0 2px 4px rgba(255, 255, 255, .28);
+    }
+
+    .local .avatar {
+      width: 54px;
+      height: 54px;
+    }
+
+    .seat-name {
+      margin-top: 4px;
+      font-size: 14px;
+      font-weight: 800;
+      color: #ffe7ad;
+    }
+
+    .seat-status {
+      margin-top: 3px;
+      font-size: 11px;
+      color: rgba(222, 245, 215, .86);
+    }
+
+    .local .seat-name {
+      margin: 0 0 4px;
+      font-size: 20px;
+    }
+
+    .local .seat-status {
+      font-size: 13px;
+    }
+
+    .table-info {
+      position: absolute;
+      left: 54px;
+      right: 54px;
+      top: 432px;
+      height: 116px;
+      display: grid;
+      align-content: center;
+      gap: 8px;
+      padding: 0 18px;
+      text-align: center;
+      border: 1px solid rgba(248, 215, 145, .48);
+      border-radius: 18px;
+      background: radial-gradient(circle at 50% 12%, rgba(255, 222, 126, .22), rgba(24, 68, 34, .62) 62%, rgba(21, 48, 29, .72));
+      box-shadow: inset 0 2px 12px rgba(255, 229, 157, .16), 0 16px 32px rgba(0, 0, 0, .25);
+    }
+
+    .last-bid {
+      font-size: 28px;
+      font-weight: 900;
+      color: #fff0b7;
+      text-shadow: 0 2px 2px rgba(0, 0, 0, .35);
+    }
+
+    .rule {
+      font-size: 13px;
+      color: rgba(233, 246, 215, .92);
+    }
+
+    .history {
+      font-size: 12px;
+      color: rgba(255, 231, 174, .8);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .cup-area {
+      position: absolute;
+      left: 50%;
+      top: 566px;
+      width: 266px;
+      height: 174px;
+      transform: translateX(-50%);
+      display: grid;
+      place-items: center;
+    }
+
+    .dice-row {
+      position: absolute;
+      top: 72px;
+      display: flex;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: 16px;
+      background: rgba(16, 49, 26, .45);
+      box-shadow: inset 0 1px 12px rgba(0, 0, 0, .3);
+    }
+
+    .die {
+      position: relative;
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      background: linear-gradient(145deg, #fff9e4, #e4d7b7);
+      box-shadow: inset 0 2px 4px rgba(255, 255, 255, .7), inset 0 -3px 5px rgba(94, 60, 36, .18), 0 3px 5px rgba(0, 0, 0, .28);
+    }
+
+    .dot {
+      position: absolute;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #8d1612;
+      box-shadow: inset 0 1px 1px rgba(255, 255, 255, .35);
+    }
+
+    .p1 { left: 50%; top: 50%; transform: translate(-50%, -50%); }
+    .p2 { left: 8px; top: 8px; }
+    .p3 { right: 8px; bottom: 8px; }
+    .p4 { right: 8px; top: 8px; }
+    .p5 { left: 8px; bottom: 8px; }
+
+    .cup-image {
+      position: absolute;
+      top: -4px;
+      width: 168px;
+      height: 168px;
+      object-fit: contain;
+      filter: drop-shadow(0 14px 16px rgba(0, 0, 0, .32));
+      z-index: 3;
+    }
+
+    .bid-picker {
+      position: absolute;
+      left: 44px;
+      right: 44px;
+      bottom: 214px;
+      height: 58px;
+      display: grid;
+      grid-template-columns: 44px 1fr 44px 44px 54px 44px;
+      gap: 8px;
+      align-items: center;
+      padding: 7px 10px;
+      border: 1px solid rgba(244, 205, 121, .48);
+      border-radius: 16px;
+      background: rgba(34, 22, 14, .72);
+      box-shadow: 0 12px 24px rgba(0, 0, 0, .24);
+    }
+
+    .round-btn,
+    .action {
+      border: 1px solid rgba(255, 235, 170, .55);
+      color: #311c0e;
+      font-weight: 900;
+      background: linear-gradient(180deg, #ffe09a, #bd7a2f);
+      box-shadow: inset 0 1px rgba(255, 255, 255, .34), 0 4px 10px rgba(0, 0, 0, .25);
+    }
+
+    .round-btn {
+      height: 42px;
+      border-radius: 13px;
+      font-size: 20px;
+    }
+
+    .quantity {
+      text-align: center;
+      font-size: 18px;
+      font-weight: 900;
+      color: #ffe9b1;
+    }
+
+    .selected-face {
+      display: grid;
+      place-items: center;
+    }
+
+    .actions {
+      position: absolute;
+      left: 24px;
+      right: 24px;
+      bottom: 24px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .action {
+      height: 58px;
+      border-radius: 17px;
+      font-size: 22px;
+      letter-spacing: 0;
+    }
+
+    .local-dice {
+      display: flex;
+      gap: 6px;
+      justify-content: flex-end;
+    }
+
+    .local-dice .die {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+    }
+
+    .local-dice .dot {
+      width: 5px;
+      height: 5px;
+    }
+  </style>
+</head>
+<body>
+  <main class="phone" aria-label="大话骰桌面 UI 预览">
+    <section class="top-bar">
+      <div class="room">
+        <strong>房间 888888</strong>
+        <span>叫牌阶段</span>
+      </div>
+      <button class="share">分享</button>
+    </section>
+
+    <div class="message">轮到 玩家A 行动</div>
+
+    <aside class="seat left">
+      <div class="avatar"></div>
+      <div class="seat-name">玩家A</div>
+      <div class="seat-status">正在行动</div>
+    </aside>
+
+    <aside class="seat top">
+      <div class="avatar"></div>
+      <div class="seat-name">玩家B</div>
+      <div class="seat-status">已摇骰</div>
+    </aside>
+
+    <aside class="seat right">
+      <div class="avatar"></div>
+      <div class="seat-name">玩家C</div>
+      <div class="seat-status">等待</div>
+    </aside>
+
+    <section class="table-info">
+      <div class="last-bid">3 个 4</div>
+      <div class="rule">规则：1 当前为万能点</div>
+      <div class="history">房主 2个3 / 玩家A 3个4</div>
+    </section>
+
+    <section class="cup-area">
+      <div class="dice-row">
+        <div class="die"><i class="dot p1"></i></div>
+        <div class="die"><i class="dot p2"></i><i class="dot p3"></i></div>
+        <div class="die"><i class="dot p2"></i><i class="dot p1"></i><i class="dot p3"></i></div>
+        <div class="die"><i class="dot p2"></i><i class="dot p4"></i><i class="dot p5"></i><i class="dot p3"></i></div>
+        <div class="die"><i class="dot p2"></i><i class="dot p4"></i><i class="dot p1"></i><i class="dot p5"></i><i class="dot p3"></i></div>
+      </div>
+      <img class="cup-image" src="../assets/textures/generated/dice_cup_wood_closed.png" alt="">
+    </section>
+
+    <section class="bid-picker">
+      <button class="round-btn">-</button>
+      <div class="quantity">3 个</div>
+      <button class="round-btn">+</button>
+      <button class="round-btn">-</button>
+      <div class="selected-face">
+        <div class="die"><i class="dot p2"></i><i class="dot p4"></i><i class="dot p5"></i><i class="dot p3"></i></div>
+      </div>
+      <button class="round-btn">+</button>
+    </section>
+
+    <section class="seat local">
+      <div class="avatar"></div>
+      <div>
+        <div class="seat-name">我</div>
+        <div class="seat-status">上拖骰盅查看，下拖盖住</div>
+      </div>
+      <div class="local-dice">
+        <div class="die"><i class="dot p1"></i></div>
+        <div class="die"><i class="dot p2"></i><i class="dot p3"></i></div>
+        <div class="die"><i class="dot p2"></i><i class="dot p1"></i><i class="dot p3"></i></div>
+        <div class="die"><i class="dot p2"></i><i class="dot p4"></i><i class="dot p5"></i><i class="dot p3"></i></div>
+        <div class="die"><i class="dot p2"></i><i class="dot p4"></i><i class="dot p1"></i><i class="dot p5"></i><i class="dot p3"></i></div>
+      </div>
+    </section>
+
+    <section class="actions">
+      <button class="action">喊注</button>
+      <button class="action">开</button>
+    </section>
+  </main>
+</body>
+</html>

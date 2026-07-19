@@ -96,6 +96,7 @@ async function joinRoomAction(event, openid, now) {
   };
 }
 
+
 async function mutateRoomAction(event, openid, now) {
   if (!event.roomDocId) {
     throw new Error('缺少房间 ID。');
@@ -175,6 +176,7 @@ async function assertTokenForRoom(room, joinToken) {
     throw new Error('房间分享校验失败。');
   }
 }
+
 
 async function getPrivateDice(roomDocId, openid) {
   try {
